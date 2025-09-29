@@ -1,0 +1,17 @@
+
+node_modules/
+Frontend/node_modules/
+
+# Next.js / build
+.next/
+out/
+dist/
+
+# Env & logs
+.env
+.env.local
+*.log
+
+# OS/Editor junk
+.DS_Store
+*.swp
