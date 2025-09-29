@@ -1,5 +1,6 @@
 from .db import pool
-from .llm import embed
+from .llm import embed_text as embed
+
 
 def search_docs(query: str, top_k: int = 5):
     v = embed(query)
