@@ -208,19 +208,15 @@ Remember: Your credibility depends on accuracy. It's better to say "I don't have
 # ---- Azure OpenAI client ----
 _client: Optional[AzureOpenAI] = None
 
-def _get_client() -> AzureOpenAI:
+def _get_client():
     global _client
     if _client is None:
-        if not AZURE_ENDPOINT or not AZURE_API_KEY:
-            raise RuntimeError("Azure OpenAI credentials are missing. "
-                               "Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY.")
         _client = AzureOpenAI(
-            azure_endpoint=AZURE_ENDPOINT,
-            api_key=AZURE_API_KEY,
-            api_version=AZURE_API_VERSION,
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            api_version=os.environ.get("AZURE_OPENAI_GPT4_API_VERSION", "2024-02-01"),
         )
     return _client
-
 # ---- Embeddings ----
 def _embed_sync(text: str) -> List[float]:
     """

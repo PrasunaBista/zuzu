@@ -26,7 +26,7 @@ interface Message {
 }
 
 interface Conversation {
-  id: string; // backend UUID
+  id: string;
   title: string;
   createdAt: number;
   messages: Message[];
@@ -39,54 +39,16 @@ interface ZuzuAnalytics {
 }
 
 // ---- Config ----
-// IMPORTANT: force HTTPS to avoid mixed-content blocks.
-// ---- Config ----
-const API_BASE = "https://askzuzu.com/api";
-
-// Optional runtime sanity check
-if (typeof window !== "undefined") {
-  console.log("API_BASE =", API_BASE, "protocol =", location.protocol);
-}
-
-// ---- API helpers ----
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 async function createChat(title?: string): Promise<string> {
   const res = await fetch(`${API_BASE}/chats`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(title ? { title } : {}),
   });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("createChat failed:", res.status, body);
-    throw new Error(`Create chat failed (${res.status})`);
-  }
-  const data = (await res.json()) as { chat_id: string };
+  if (!res.ok) throw new Error(`Create chat failed (${res.status})`);
+  const data = await res.json() as { chat_id: string };
   return data.chat_id;
-}
-
-async function chatToBackend(chatId: string, message: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, message }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("chatToBackend failed:", res.status, body);
-    throw new Error(`Chat API ${res.status}`);
-  }
-  const data = (await res.json()) as { reply: string };
-  return data.reply;
-}
-
-async function loadAnalytics(tf: string): Promise<ZuzuAnalytics> {
-  const res = await fetch(`${API_BASE}/analytics?tf=${encodeURIComponent(tf)}`);
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("loadAnalytics failed:", res.status, body);
-    throw new Error(`Analytics ${res.status}`);
-  }
-  return (await res.json()) as ZuzuAnalytics;
 }
 
 // ---- Helpers ----
@@ -106,12 +68,30 @@ const BEIGE = {
   white: "text-white",
 };
 
+async function chatToBackend(chatId: string, message: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message }),
+  });
+  if (!res.ok) throw new Error(`Chat API ${res.status}`);
+  const data = (await res.json()) as { reply: string };
+  return data.reply;
+}
+
+async function loadAnalytics(tf: string): Promise<ZuzuAnalytics> {
+  const res = await fetch(`${API_BASE}/analytics?tf=${encodeURIComponent(tf)}`);
+  if (!res.ok) throw new Error(`Analytics ${res.status}`);
+  return (await res.json()) as ZuzuAnalytics;
+}
+
 // ================= MAIN =================
 export default function ZuzuApp() {
   const [view, setView] = useState<"chat" | "admin">("chat");
 
   // conversations + selection
   const [convos, setConvos] = useState<Conversation[]>(() => {
+    // optional: hydrate from localStorage
     try {
       const raw = localStorage.getItem("zuzu_convos");
       if (raw) return JSON.parse(raw) as Conversation[];
@@ -139,39 +119,23 @@ export default function ZuzuApp() {
     } catch {}
   }, [convos]);
 
-  // Create a new empty conversation (backend UUID)
-  const createConvo = async () => {
-    try {
-      const chatId = await createChat("New Conversation");
-      const newC: Conversation = {
-        id: chatId,
-        title: "New Conversation",
-        createdAt: Date.now(),
-        messages: [],
-      };
-      setConvos((prev) => [newC, ...prev]);
-      setActiveId(chatId);
-    } catch (e) {
-      alert("Failed to create a new conversation. Check if /api/chats is reachable.");
-    }
-  };
+  // Create a new empty conversation
+const createConvo = async () => {
+  // 1) create on backend and get real UUID
+  const chatId = await createChat("New Conversation");
 
-  // Ensure we have an active chat id; create if needed and return its id
-  const ensureActive = async (): Promise<string> => {
-    if (activeId) return activeId;
-    const chatId = await createChat("New Conversation");
-    const newC: Conversation = {
-      id: chatId,
-      title: "New Conversation",
-      createdAt: Date.now(),
-      messages: [],
-    };
-    setConvos((prev) => [newC, ...prev]);
-    setActiveId(chatId);
-    return chatId;
+  // 2) store in UI state with that id
+  const newC: Conversation = {
+    id: chatId,               // IMPORTANT: backend UUID, not uid()
+    title: "New Conversation",
+    createdAt: Date.now(),
+    messages: [],
   };
+  setConvos((prev) => [newC, ...prev]);
+  setActiveId(chatId);
+};
 
-  // Delete conversation from sidebar (frontend only)
+  // Delete conversation from sidebar
   const deleteConvo = (id: string) => {
     setConvos((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) {
@@ -180,12 +144,17 @@ export default function ZuzuApp() {
     }
   };
 
+  const ensureActive = () => {
+    if (!activeId) createConvo();
+  };
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text) return;
+    ensureActive();
 
-    // make sure we have a backend chat id before sending
-    const convId = activeId ?? (await ensureActive());
+    const convId = activeId ?? convos[0]?.id;
+    if (!convId) return;
 
     const newUserMsg: Message = {
       id: uid(),
@@ -194,7 +163,7 @@ export default function ZuzuApp() {
       ts: Date.now(),
     };
 
-    // update title if first message
+    // If the convo is empty, update its title to the first message snippet
     setConvos((prev) =>
       prev.map((c) =>
         c.id === convId
@@ -202,9 +171,7 @@ export default function ZuzuApp() {
               ...c,
               title:
                 c.messages.length === 0
-                  ? text.length > 40
-                    ? text.slice(0, 40) + "…"
-                    : text
+                  ? (text.length > 40 ? text.slice(0, 40) + "…" : text)
                   : c.title,
               messages: [...c.messages, newUserMsg],
             }
@@ -215,7 +182,7 @@ export default function ZuzuApp() {
     setIsTyping(true);
 
     try {
-      const reply = await chatToBackend(convId, text);
+      const reply = await chatToBackend(text);
       const botMsg: Message = {
         id: uid(),
         role: "bot",
@@ -227,12 +194,12 @@ export default function ZuzuApp() {
           c.id === convId ? { ...c, messages: [...c.messages, botMsg] } : c
         )
       );
-    } catch (e) {
+    } catch {
       const errMsg: Message = {
         id: uid(),
         role: "bot",
         content:
-          "I couldn’t reach the backend. Ensure HTTPS and that Nginx proxies /api/* to FastAPI on :8000.",
+          "I couldn’t reach the backend. Make sure Nginx proxies /api/* to FastAPI on :8000, or set NEXT_PUBLIC_API_BASE.",
         ts: Date.now(),
       };
       setConvos((prev) =>
@@ -254,7 +221,11 @@ export default function ZuzuApp() {
 
   // Admin view
   if (view === "admin") {
-    return <AdminDashboard onBack={() => setView("chat")} />;
+    return (
+      <AdminDashboard
+        onBack={() => setView("chat")}
+      />
+    );
   }
 
   return (
@@ -272,7 +243,7 @@ export default function ZuzuApp() {
       <aside
         className={`w-80 ${BEIGE.panel} backdrop-blur-2xl border-r ${BEIGE.border} flex flex-col relative z-10`}
       >
-        <div className={`h-20 px-6 border-b ${BEIGE.border} flex items-center`}>
+        <div className="h-20 px-6 border-b ${BEIGE.border} flex items-center">
           <div className="flex items-center gap-3">
             <Image
               src="/zuzu.png"
@@ -284,9 +255,7 @@ export default function ZuzuApp() {
               unoptimized
             />
             <div className="leading-tight">
-              <h1
-                className={`text-2xl font-bold bg-gradient-to-r ${BEIGE.accentFrom} ${BEIGE.accentTo} bg-clip-text text-transparent`}
-              >
+              <h1 className={`text-2xl font-bold bg-gradient-to-r ${BEIGE.accentFrom} ${BEIGE.accentTo} bg-clip-text text-transparent`}>
                 ZUZU
               </h1>
               <p className="text-[#B4883A] text-xs font-medium">AI Assistant</p>
@@ -296,7 +265,7 @@ export default function ZuzuApp() {
 
         <div className="p-6 space-y-4 flex-1 overflow-auto">
           <button
-            onClick={() => void createConvo()}
+            onClick={createConvo}
             className={`w-full p-4 bg-gradient-to-r ${BEIGE.accentFrom} via-[#E8B560] ${BEIGE.accentTo} text-white rounded-2xl hover:shadow-2xl hover:shadow-[#E8B560]/40 transition-all duration-300 flex items-center justify-center space-x-3 group`}
           >
             <div className="p-1 bg-white/20 rounded-lg">
@@ -308,13 +277,10 @@ export default function ZuzuApp() {
 
           {/* Conversations list with DELETE on the SIDEBAR */}
           {convos.length === 0 ? (
-            <div className="text-[#B4883A]/70 text-sm">
-              Recent chats will appear here.
-            </div>
+            <div className="text-[#B4883A]/70 text-sm">Recent chats will appear here.</div>
           ) : (
             <div className="space-y-2">
-              {convos.map((c) => {
-                const isActive = c.id === activeId;
+              {convos.map((c) => {                const isActive = c.id === activeId;
                 return (
                   <div
                     key={c.id}
@@ -325,16 +291,13 @@ export default function ZuzuApp() {
                   >
                     <MessageSquare size={18} className={BEIGE.text2} />
                     <div className="flex-1 min-w-0">
-                      <div
-                        className={`truncate text-sm font-medium ${BEIGE.text1}`}
-                      >
-                        {c.title}
-                      </div>
+                      <div className={`truncate text-sm font-medium ${BEIGE.text1}`}>{c.title}</div>
                       <div className="text-xs text-[#A9884A]">
                         {new Date(c.createdAt).toLocaleDateString()}
                       </div>
                     </div>
 
+                    {/* DELETE BUTTON for history item */}
                     <button
                       className="opacity-70 hover:opacity-100 p-2 rounded-lg hover:bg-white/60 transition"
                       onClick={(e) => {
@@ -361,9 +324,7 @@ export default function ZuzuApp() {
             <div className="p-1 bg-[#E8B560]/30 rounded-lg">
               <BarChart3 size={16} className={BEIGE.text1} />
             </div>
-            <span className={`text-sm font-medium ${BEIGE.text1}`}>
-              Admin Dashboard
-            </span>
+            <span className={`text-sm font-medium ${BEIGE.text1}`}>Admin Dashboard</span>
             <TrendingUp size={14} className="ml-auto text-[#C5933C]" />
           </button>
         </div>
@@ -372,9 +333,7 @@ export default function ZuzuApp() {
       {/* Main Chat */}
       <main className="flex-1 flex flex-col relative z-10">
         {/* Header */}
-        <div
-          className={`h-20 ${BEIGE.panel} backdrop-blur-2xl border-b ${BEIGE.border}`}
-        >
+        <div className={`h-20 ${BEIGE.panel} backdrop-blur-2xl border-b ${BEIGE.border}`}>
           <div className="h-full px-6 flex items-center">
             <div className="flex items-center gap-3">
               <div
@@ -388,18 +347,15 @@ export default function ZuzuApp() {
                   maskRepeat: "no-repeat",
                   WebkitMaskPosition: "center",
                   maskPosition: "center",
-                  background: "linear-gradient(90deg, #D49A3A, #E8B560)",
+                  background:
+                    "linear-gradient(90deg, #D49A3A, #E8B560)",
                 }}
               />
               <div>
-                <h2 className={`text-lg font-bold ${BEIGE.text2}`}>
-                  Here to help
-                </h2>
+                <h2 className={`text-lg font-bold ${BEIGE.text2}`}>Here to help</h2>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span className="text-green-600 text-sm font-medium">
-                    Online
-                  </span>
+                  <span className="text-green-600 text-sm font-medium">Online</span>
                 </div>
               </div>
             </div>
@@ -489,9 +445,7 @@ export default function ZuzuApp() {
         </div>
 
         {/* Composer */}
-        <div
-          className={`p-6 border-t ${BEIGE.border} ${BEIGE.panel} backdrop-blur-2xl`}
-        >
+        <div className={`p-6 border-t ${BEIGE.border} ${BEIGE.panel} backdrop-blur-2xl`}>
           <div className="flex items-end gap-4">
             <div className="flex-1 relative">
               <div className="absolute inset-0 rounded-3xl blur-xl bg-gradient-to-r from-[#D49A3A]/15 to-[#E8B560]/15" />
@@ -499,7 +453,7 @@ export default function ZuzuApp() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder="Ask ZUZU anything about International students Onboarding..."
+                placeholder="Ask ZUZU anything about your international education journey..."
                 className={`w-full px-6 py-4 rounded-3xl border ${BEIGE.border} focus:outline-none focus:ring-2 focus:ring-[#E8B560] resize-none max-h-32 relative z-10 ${BEIGE.bg} ${BEIGE.text1} placeholder-[#B4883A]/70 font-medium`}
                 rows={1}
               />
@@ -537,9 +491,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
         setError(null);
       } catch {
         if (!ok) return;
-        setError(
-          "Failed to load analytics. Is /api/analytics proxied to the backend?"
-        );
+        setError("Failed to load analytics. Is /api/analytics proxied to the backend?");
         setData(null);
       }
     })();
@@ -549,18 +501,14 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
   }, [tf]);
 
   return (
-    <div
-      className={`min-h-screen relative overflow-hidden ${BEIGE.bg} bg-gradient-to-br from-[#F7F2E7] via-[#F3EAD9] to-[#F9EDD2]`}
-    >
+    <div className={`min-h-screen relative overflow-hidden ${BEIGE.bg} bg-gradient-to-br from-[#F7F2E7] via-[#F3EAD9] to-[#F9EDD2]`}>
       <div className="absolute inset-0 opacity-10 pointer-events-none">
         <div className="absolute top-10 left-10 w-96 h-96 rounded-full blur-3xl bg-gradient-to-br from-[#E7B157] to-[#FFD48A] animate-pulse" />
         <div className="absolute bottom-10 right-10 w-80 h-80 rounded-full blur-3xl bg-gradient-to-br from-[#F0C36A] to-[#FFDFA6] animate-pulse delay-1000" />
         <div className="absolute top-1/3 right-1/3 w-64 h-64 rounded-full blur-2xl bg-gradient-to-br from-[#E3A545] to-[#FFC96D] animate-pulse delay-500" />
       </div>
 
-      <header
-        className={`p-6 border-b ${BEIGE.border} ${BEIGE.panel} backdrop-blur-2xl relative z-10`}
-      >
+      <header className={`p-6 border-b ${BEIGE.border} ${BEIGE.panel} backdrop-blur-2xl relative z-10`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -599,9 +547,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
       <div className="p-8 relative z-10">
         {/* Total Questions */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          <div
-            className={`p-6 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-          >
+          <div className={`p-6 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}>
             <div className="flex items-center justify-between mb-4">
               <div className="w-12 h-12 rounded-2xl grid place-items-center bg-gradient-to-r from-[#6DB0FF] to-[#59D4E0] text-white shadow">
                 <MessageSquare size={20} />
@@ -609,9 +555,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
               <div className="text-[#B4883A] text-sm font-semibold">Total</div>
             </div>
             <div>
-              <p className="text-[#7A6239] text-sm font-medium mb-1">
-                Total Questions
-              </p>
+              <p className="text-[#7A6239] text-sm font-medium mb-1">Total Questions</p>
               <p className="text-3xl font-bold text-[#5A4525]">
                 {data ? data.totalQuestions.toLocaleString() : "—"}
               </p>
@@ -621,13 +565,9 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 mb-10">
           {/* Categories */}
-          <div
-            className={`xl:col-span-2 p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-          >
+          <div className={`xl:col-span-2 p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}>
             <div className="flex items-center justify-between mb-8">
-              <h3 className="text-2xl font-bold text-[#5A4525]">
-                Question Categories
-              </h3>
+              <h3 className="text-2xl font-bold text-[#5A4525]">Question Categories</h3>
               <div className="px-3 py-1 rounded-full border border-[#EAC999]/60 bg-white/60">
                 <span className="text-[#B4883A] text-sm font-semibold">LIVE</span>
               </div>
@@ -642,12 +582,8 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
           </div>
 
           {/* Live activity placeholder */}
-          <div
-            className={`p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-          >
-            <h3 className="text-2xl font-bold text-[#5A4525] mb-6">
-              Live Activity
-            </h3>
+          <div className={`p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}>
+            <h3 className="text-2xl font-bold text-[#5A4525] mb-6">Live Activity</h3>
             <div className="text-[#A9884A] text-sm">
               Hook a websocket or polling endpoint to render recent events here.
             </div>
@@ -655,21 +591,14 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
         </div>
 
         {/* Weekly */}
-        <div
-          className={`p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-        >
+        <div className={`p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}>
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-2xl font-bold text-[#5A4525]">
-              Weekly Performance
-            </h3>
+            <h3 className="text-2xl font-bold text-[#5A4525]">Weekly Performance</h3>
           </div>
           {data ? (
             <div className="h-80 flex items-end justify-between gap-3">
               {data.dailyQuestions.map((d, i) => {
-                const max = Math.max(
-                  ...data.dailyQuestions.map((x) => x.questions),
-                  1
-                );
+                const max = Math.max(...data.dailyQuestions.map((x) => x.questions), 1);
                 const height = (d.questions / max) * 250;
                 return (
                   <div key={i} className="flex flex-col items-center flex-1 gap-2">
@@ -679,9 +608,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
                         style={{ height }}
                       />
                     </div>
-                    <span className="text-[#7A6239] text-sm font-medium">
-                      {d.date}
-                    </span>
+                    <span className="text-[#7A6239] text-sm font-medium">{d.date}</span>
                     <div className="text-center text-[#5A4525] font-bold text-sm">
                       {d.questions}
                     </div>
@@ -724,9 +651,7 @@ function CategoriesView({ data }: { data: ZuzuAnalytics }) {
           <div key={label} className="group">
             <div className="flex justify-between items-center mb-3">
               <span className="text-[#5A4525] font-semibold">{label}</span>
-              <span className="text-[#B4883A] font-bold">
-                {val.toLocaleString()}
-              </span>
+              <span className="text-[#B4883A] font-bold">{val.toLocaleString()}</span>
             </div>
             <div className="h-3 bg-[#EEDFC0] rounded-full overflow-hidden">
               <div

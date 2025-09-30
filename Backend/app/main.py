@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
+from fastapi import APIRouter
 from .schemas import (
     ChatCreate, ChatSummary, ChatPost, ChatReply,
     AnalyticsResponse, SearchRequest, SearchResponse
@@ -360,11 +360,26 @@ async def chat_api(body: ChatPost):
 
 # ----------------- Analytics & Search -----------------
 
-@app.get("/api/analytics", response_model=AnalyticsResponse)
+@app.get("/api/analytics")
 async def analytics(tf: str = "7d"):
-    data = await get_analytics(tf)
-    return JSONResponse(data)
+    # Option A: if get_analytics does NOT accept tf, just call with no args
+    data = await get_analytics()  # <- no argument
 
+    # Map backend keys to the frontend interface:
+    # Frontend needs:
+    # { totalQuestions, questionCategories:[{category,count}], dailyQuestions:[{date, questions}] }
+    by_day = data.get("by_day", [])
+    top_categories = data.get("top_categories", [])
+    chats_total = data.get("totals", {}).get("chats", 0)
+
+    shaped = {
+        "totalQuestions": chats_total,
+        "questionCategories": top_categories,
+        "dailyQuestions": [
+            {"date": d.get("date"), "questions": d.get("count", 0)} for d in by_day
+        ],
+    }
+    return JSONResponse(shaped)
 @app.post("/api/search", response_model=SearchResponse)
 async def semantic_search(req: SearchRequest):
     hits = search_docs(req.query, req.top_k)
