@@ -1,0 +1,41 @@
+// components/CategorySelector.tsx
+
+"use client";
+
+import React from "react";
+
+interface CategorySelectorProps {
+  categories: string[];
+  onSelect: (category: string) => void;
+}
+
+export default function CategorySelector({
+  categories,
+  onSelect,
+}: CategorySelectorProps) {
+  return (
+    <div className="flex flex-col gap-2">
+      {categories.map((cat) => (
+        <button
+          key={cat}
+          onClick={() => onSelect(cat)}
+          className="
+            w-full
+            text-left
+            px-4 py-3
+            rounded-xl
+            border border-[#F3C58C]
+            bg-[#FFF9F2]
+            text-[#5C3B1F]
+            font-medium
+            shadow-[0_1px_4px_rgba(0,0,0,0.05)]
+            hover:bg-white
+            transition
+          "
+        >
+          {cat}
+        </button>
+      ))}
+    </div>
+  );
+}

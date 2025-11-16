@@ -1,0 +1,42 @@
+// components/ZuzuBubble.tsx
+
+"use client";
+
+import Image from "next/image";
+import React from "react";
+
+interface ZuzuBubbleProps {
+  children: React.ReactNode;
+}
+
+export default function ZuzuBubble({ children }: ZuzuBubbleProps) {
+  return (
+    <div className="flex justify-start gap-3">
+      {/* ZUZU Avatar */}
+      <div className="flex items-start pt-4 min-w-[40px]">
+        <Image
+          src="/zuzu.png"
+          alt="ZUZU"
+          width={36}
+          height={36}
+          className="rounded-none"
+          unoptimized
+        />
+      </div>
+
+      {/* Bubble */}
+      <div
+        className="
+          max-w-2xl
+          rounded-3xl 
+          border border-[#F3C58C] 
+          bg-white
+          px-6 py-5 
+          shadow-[0_4px_12px_rgba(0,0,0,0.08)]
+        "
+      >
+        {children}
+      </div>
+    </div>
+  );
+}

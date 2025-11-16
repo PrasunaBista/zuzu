@@ -1,0 +1,24 @@
+// components/UserIcon.tsx
+
+"use client";
+
+import React from "react";
+
+export default function UserIcon() {
+  return (
+    <div className="flex items-start pt-4 min-w-[40px] justify-end">
+      <div
+        className="
+          w-9 h-9
+          rounded-full
+          bg-[#F6A94A]
+          text-white
+          flex items-center justify-center
+          shadow-md
+        "
+      >
+        <span className="text-sm font-semibold">U</span>
+      </div>
+    </div>
+  );
+}

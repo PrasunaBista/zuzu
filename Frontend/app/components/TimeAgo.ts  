@@ -1,0 +1,24 @@
+// components/TimeAgo.ts
+
+export function timeAgo(ts: number): string {
+  const now = Date.now();
+  const diff = now - ts;
+
+  const sec = Math.floor(diff / 1000);
+  const min = Math.floor(sec / 60);
+  const hrs = Math.floor(min / 60);
+  const days = Math.floor(hrs / 24);
+
+  if (sec < 60) return "Just now";
+  if (min < 60) return `${min}m ago`;
+  if (hrs < 24) return `${hrs}h ago`;
+  if (days === 1) return "Yesterday";
+  if (days <= 7) return `${days} days ago`;
+  if (days <= 30) return `${days}d ago`;
+
+  // Floot-style short date (no year)
+  return new Date(ts).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}

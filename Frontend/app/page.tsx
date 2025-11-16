@@ -1,518 +1,859 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  KeyboardEvent,
+} from "react";
+
 import Image from "next/image";
 import {
   Send,
   Plus,
-  BarChart3,
-  TrendingUp,
   Trash,
-  MessageSquare,
-  Bot,
-  Sparkles,
-  Zap,
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
+  User,
+  ArrowLeft,
+  Lock,
+  PieChart as PieChartIcon,
 } from "lucide-react";
+import { createPortal } from "react-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeSanitize from "rehype-sanitize";
+import {
+  PieChart as RePieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+} from "recharts";
 
-// ---- Types ----
+// ============================================================
+//                     BACKEND CATEGORIES
+// ============================================================
+
+export const ZUZU_CATEGORIES: string[] = [
+  "Housing",
+  "Admissions",
+  "Visa and Immigration",
+  "Travel and Arrival",
+  "Forms and Documentation",
+  "Money and Banking",
+  "Campus Life and Academics",
+  "Health and Safety",
+  "Phone and Connectivity",
+  "Work and Career",
+  "Community and Daily Life",
+  "Other Inquiries",
+];
+
+export const ZUZU_SUBCATEGORIES: Record<string, string[]> = {
+  Housing: [
+    "Housing options overview",
+    "Residence halls",
+    "Apartments and off-campus housing",
+    "Rates and contracts",
+    "Move-in and move-out",
+    "Roommates and matching",
+    "Housing problems and maintenance",
+  ],
+  Admissions: [
+    "Application and deadlines",
+    "Test scores and GPA",
+    "Transcripts and academic records",
+    "Offer letter and deposits",
+    "Deferral or change of term",
+  ],
+  "Visa and Immigration": [
+    "I-20 / DS-2019 questions",
+    "SEVIS fee and SEVIS record",
+    "Visa interview preparation",
+    "At the port of entry",
+    "Maintaining status",
+    "CPT, OPT, and STEM-OPT",
+    "Travel and re-entry",
+  ],
+  "Travel and Arrival": [
+    "Booking flights and timing",
+    "Airport pickup and directions to campus",
+    "Temporary housing / hotels",
+    "What to pack",
+    "Arriving early or late",
+  ],
+  "Forms and Documentation": [
+    "Immunization and health forms",
+    "Financial forms and proof of funding",
+    "Housing application forms",
+    "Enrollment and registration forms",
+    "Other university forms",
+  ],
+  "Money and Banking": [
+    "Paying tuition and fees",
+    "Opening a bank account",
+    "Budget and cost of living",
+    "Scholarships and assistantships",
+    "Refunds and payment plans",
+  ],
+  "Campus Life and Academics": [
+    "Class registration and add/drop",
+    "Choosing majors and advisors",
+    "Tutoring and academic support",
+    "Using campus resources",
+    "Academic policies",
+  ],
+  "Health and Safety": [
+    "Health insurance requirements",
+    "On-campus clinic and medical care",
+    "Mental health support",
+    "Campus safety and emergency contacts",
+  ],
+  "Phone and Connectivity": [
+    "SIM cards and phone plans",
+    "Wi-Fi and internet on campus",
+    "University accounts, passwords, and MFA",
+  ],
+  "Work and Career": [
+    "On-campus jobs",
+    "Internships and co-ops",
+    "Career center and resume help",
+    "Social Security Number for work",
+  ],
+  "Community and Daily Life": [
+    "Groceries, shopping, and food options",
+    "Weather and clothing",
+    "Transportation (bus, parking, ride-share)",
+    "Student clubs and making friends",
+  ],
+  "Other Inquiries": ["Anything else"],
+};
+
+// ============================================================
+//                         TYPES
+// ============================================================
+
 type Role = "user" | "bot";
 
 interface Message {
   id: string;
   role: Role;
   content: string;
-  ts: number; // epoch ms
+  ts: number;
 }
 
 interface Conversation {
-  id: string; // backend UUID
+  id: string;
   title: string;
   createdAt: number;
   messages: Message[];
 }
 
-interface ZuzuAnalytics {
-  totalQuestions: number;
-  questionCategories: { category: string; count: number }[];
-  dailyQuestions: { date: string; questions: number }[];
-}
+// ============================================================
+//                      API BASE URL
+// ============================================================
 
-// ---- Config ----
-// IMPORTANT: force HTTPS to avoid mixed-content blocks.
-// ---- Config ----
-const API_BASE = "https://askzuzu.com/api";
+const API_BASE = "http://localhost:8000/api";
 
-// Optional runtime sanity check
-if (typeof window !== "undefined") {
-  console.log("API_BASE =", API_BASE, "protocol =", location.protocol);
-}
+// ============================================================
+//                          THEME
+// ============================================================
 
-// ---- API helpers ----
-async function createChat(title?: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/chats`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(title ? { title } : {}),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("createChat failed:", res.status, body);
-    throw new Error(`Create chat failed (${res.status})`);
+const THEME = {
+  appBg: "bg-[#FFEFD9]",
+  sidebarBg: "bg-[#FDE3C5]",
+  sidebarBorder: "border-[#F3C58C]",
+  bubbleBotBg: "bg-white",
+  bubbleUserBg: "bg-[#FDE6C8]",
+  bubbleBorder: "border-[#F3C58C]",
+  textMain: "text-[#5C3B1F]",
+  textSub: "text-[#A06A32]",
+  brand: "text-[#F7931E]",
+  brandBg: "bg-[#FF8A00]",
+  brandBgHover: "hover:bg-[#FF9E1E]",
+};
+
+// ============================================================
+//                       DEVICE ID
+// ============================================================
+
+const DEVICE_KEY = "zuzu_device_id";
+
+function getDeviceId(): string {
+  if (typeof window === "undefined") return "server";
+
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(DEVICE_KEY, id);
   }
-  const data = (await res.json()) as { chat_id: string };
-  return data.chat_id;
+  return id;
 }
 
-async function chatToBackend(chatId: string, message: string): Promise<string> {
+const DEVICE_ID =
+  typeof window !== "undefined" ? getDeviceId() : "server";
+
+// ============================================================
+//                        HELPERS
+// ============================================================
+
+const uid = () => Math.random().toString(36).slice(2);
+
+const timeHHMM = (ms: number) =>
+  new Date(ms).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const d = diff / (1000 * 60 * 60 * 24);
+  const h = diff / (1000 * 60 * 60);
+  const m = diff / (1000 * 60);
+
+  if (d >= 1) return `${Math.floor(d)}d ago`;
+  if (h >= 1) return `${Math.floor(h)}h ago`;
+  if (m >= 1) return `${Math.floor(m)}m ago`;
+  return "just now";
+}
+
+// ============================================================
+//               INITIAL BOT MESSAGE
+// ============================================================
+
+const INITIAL_BOT_MESSAGE = `
+Hi! I'm **ZUZU** 👋  
+Are you an **undergrad or grad student**, and are you **international**?
+`.trim();
+
+// ============================================================
+//              BACKEND MESSAGE SENDER
+// ============================================================
+
+async function sendToBackend(chatId: string, text: string): Promise<string> {
   const res = await fetch(`${API_BASE}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, message }),
+    headers: {
+      "Content-Type": "application/json",
+      "X-Device-Id": DEVICE_ID,
+    },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message: text,
+    }),
   });
+
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("chatToBackend failed:", res.status, body);
-    throw new Error(`Chat API ${res.status}`);
+    const t = await res.text();
+    throw new Error(`Backend error: ${t}`);
   }
-  const data = (await res.json()) as { reply: string };
+
+  const data = await res.json();
   return data.reply;
 }
 
-async function loadAnalytics(tf: string): Promise<ZuzuAnalytics> {
-  const res = await fetch(`${API_BASE}/analytics?tf=${encodeURIComponent(tf)}`);
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("loadAnalytics failed:", res.status, body);
-    throw new Error(`Analytics ${res.status}`);
-  }
-  return (await res.json()) as ZuzuAnalytics;
-}
+// ============================================================
+//                   MAIN COMPONENT START
+// ============================================================
 
-// ---- Helpers ----
-const uid = () => Math.random().toString(36).slice(2);
-const timeHHMM = (ms: number) =>
-  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-const BEIGE = {
-  bg: "bg-[#F7F2E7]",
-  bg2: "bg-[#F3EAD9]",
-  panel: "bg-[#FFF7E8]",
-  border: "border-[#EAC999]/50",
-  accentFrom: "from-[#D49A3A]",
-  accentTo: "to-[#E8B560]",
-  text1: "text-[#5A4525]",
-  text2: "text-[#8C6B3D]",
-  white: "text-white",
-};
-
-// ================= MAIN =================
 export default function ZuzuApp() {
   const [view, setView] = useState<"chat" | "admin">("chat");
 
-  // conversations + selection
-  const [convos, setConvos] = useState<Conversation[]>(() => {
-    try {
-      const raw = localStorage.getItem("zuzu_convos");
-      if (raw) return JSON.parse(raw) as Conversation[];
-    } catch {}
-    return [];
-  });
-  const [activeId, setActiveId] = useState<string | null>(convos[0]?.id ?? null);
+  // Sidebar
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Conversations
+  const [convos, setConvos] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
   const activeConvo = useMemo(
     () => convos.find((c) => c.id === activeId) ?? null,
     [convos, activeId]
   );
 
-  // compose
+  // Flow controller
+  const [flowStep, setFlowStep] = useState<
+    "intro" | "categories" | "subcategories" | "chat"
+  >("intro");
+
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Input
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const bootRef = useRef(false);
+
+  // admin access
+  const [adminKey, setAdminKey] = useState<string | null>(null);
+
+  // ============================================================
+  //                   AUTO SCROLL ON MESSAGE
+  // ============================================================
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConvo?.messages, isTyping]);
 
+  // ============================================================
+  //                     LOAD LOCAL STORAGE
+  // ============================================================
+
   useEffect(() => {
+    if (bootRef.current) return;
+    bootRef.current = true;
+
+    if (typeof window === "undefined") return;
+
     try {
-      localStorage.setItem("zuzu_convos", JSON.stringify(convos));
+      const stored = localStorage.getItem("zuzu_convos");
+      if (stored) {
+        const parsed = JSON.parse(stored) as Conversation[];
+        if (parsed.length > 0) {
+          setConvos(parsed);
+          setActiveId(parsed[0].id);
+          return;
+        }
+      }
     } catch {}
+
+    // otherwise: create new conversation
+    createNewConversation(true);
+  }, []);
+
+  // ============================================================
+  //                     SAVE LOCAL STORAGE
+  // ============================================================
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("zuzu_convos", JSON.stringify(convos));
   }, [convos]);
 
-  // Create a new empty conversation (backend UUID)
-  const createConvo = async () => {
-    try {
-      const chatId = await createChat("New Conversation");
-      const newC: Conversation = {
-        id: chatId,
-        title: "New Conversation",
-        createdAt: Date.now(),
-        messages: [],
-      };
-      setConvos((prev) => [newC, ...prev]);
-      setActiveId(chatId);
-    } catch (e) {
-      alert("Failed to create a new conversation. Check if /api/chats is reachable.");
-    }
-  };
+  // ==================================================================
+  //            NEW CONVERSATION — ONE EMPTY RULE
+  // ==================================================================
 
-  // Ensure we have an active chat id; create if needed and return its id
-  const ensureActive = async (): Promise<string> => {
-    if (activeId) return activeId;
-    const chatId = await createChat("New Conversation");
-    const newC: Conversation = {
-      id: chatId,
+  function isConversationEmpty(c: Conversation) {
+    // empty = ONLY initial bot message exists
+    if (!c.messages) return true;
+    if (c.messages.length === 1 && c.messages[0].role === "bot") return true;
+    return false;
+  }
+
+  function createNewConversation(isInitial = false) {
+    // RULE: if an empty conversation already exists, switch to it
+    if (!isInitial) {
+      const empty = convos.find(isConversationEmpty);
+      if (empty) {
+        setActiveId(empty.id);
+        setFlowStep("intro");
+        return;
+      }
+    }
+
+    const id = crypto.randomUUID();
+
+    const firstMsg: Message = {
+      id: uid(),
+      role: "bot",
+      content: INITIAL_BOT_MESSAGE,
+      ts: Date.now(),
+    };
+
+    const convo: Conversation = {
+      id,
       title: "New Conversation",
       createdAt: Date.now(),
-      messages: [],
+      messages: [firstMsg],
     };
-    setConvos((prev) => [newC, ...prev]);
-    setActiveId(chatId);
-    return chatId;
-  };
 
-  // Delete conversation from sidebar (frontend only)
-  const deleteConvo = (id: string) => {
-    setConvos((prev) => prev.filter((c) => c.id !== id));
+    setConvos((x) => [convo, ...x]);
+    setActiveId(id);
+    setFlowStep("intro");
+    setSelectedCategory(null);
+  }
+
+  // ============================================================
+  //                     DELETE CONVERSATION
+  // ============================================================
+
+  function deleteConvo(id: string) {
+    setConvos((x) => x.filter((c) => c.id !== id));
+
     if (activeId === id) {
       const next = convos.find((c) => c.id !== id);
       setActiveId(next?.id ?? null);
     }
-  };
+  }
 
-  const sendMessage = async () => {
-    const text = input.trim();
-    if (!text) return;
+  // ============================================================
+  //                     UPDATE AUTO TITLE
+  // ============================================================
 
-    // make sure we have a backend chat id before sending
-    const convId = activeId ?? (await ensureActive());
+  function updateConversationTitle(convoId: string, content: string) {
+    const words = content.split(/\s+/);
+    const title = words.slice(0, 6).join(" ").slice(0, 40);
 
-    const newUserMsg: Message = {
+    setConvos((prev) =>
+      prev.map((c) =>
+        c.id === convoId ? { ...c, title: title || "Conversation" } : c
+      )
+    );
+  }
+
+  // ============================================================
+  //                 SEND MESSAGE (USER → BACKEND)
+  // ============================================================
+
+  async function sendMessageWithText(text: string) {
+    if (!activeConvo) return;
+
+    // First user message → generate title
+    const hasUserMessages =
+      activeConvo.messages.filter((m) => m.role === "user").length > 0;
+    if (!hasUserMessages) {
+      updateConversationTitle(activeConvo.id, text);
+    }
+
+    // Add user message locally
+    const newUser: Message = {
       id: uid(),
       role: "user",
       content: text,
       ts: Date.now(),
     };
 
-    // update title if first message
     setConvos((prev) =>
       prev.map((c) =>
-        c.id === convId
-          ? {
-              ...c,
-              title:
-                c.messages.length === 0
-                  ? text.length > 40
-                    ? text.slice(0, 40) + "…"
-                    : text
-                  : c.title,
-              messages: [...c.messages, newUserMsg],
-            }
+        c.id === activeConvo.id
+          ? { ...c, messages: [...c.messages, newUser] }
           : c
       )
     );
-    setInput("");
+
+    setFlowStep("chat");
+
+    // Send to backend
     setIsTyping(true);
-
+    let reply = "";
     try {
-      const reply = await chatToBackend(convId, text);
-      const botMsg: Message = {
-        id: uid(),
-        role: "bot",
-        content: reply,
-        ts: Date.now(),
-      };
-      setConvos((prev) =>
-        prev.map((c) =>
-          c.id === convId ? { ...c, messages: [...c.messages, botMsg] } : c
-        )
-      );
-    } catch (e) {
-      const errMsg: Message = {
-        id: uid(),
-        role: "bot",
-        content:
-          "I couldn’t reach the backend. Ensure HTTPS and that Nginx proxies /api/* to FastAPI on :8000.",
-        ts: Date.now(),
-      };
-      setConvos((prev) =>
-        prev.map((c) =>
-          c.id === convId ? { ...c, messages: [...c.messages, errMsg] } : c
-        )
-      );
-    } finally {
-      setIsTyping(false);
+      reply = await sendToBackend(activeConvo.id, text);
+    } catch (e: any) {
+      reply = "Sorry — backend error.";
     }
-  };
+    setIsTyping(false);
 
-  const onKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    // Add bot reply
+    const botMsg: Message = {
+      id: uid(),
+      role: "bot",
+      content: reply,
+      ts: Date.now(),
+    };
+
+    setConvos((prev) =>
+      prev.map((c) =>
+        c.id === activeConvo.id
+          ? { ...c, messages: [...c.messages, botMsg] }
+          : c
+      )
+    );
+  }
+
+  function sendMessage() {
+    const t = input.trim();
+    if (!t) return;
+    setInput("");
+    sendMessageWithText(t);
+  }
+
+  function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void sendMessage();
+      sendMessage();
     }
-  };
-
-  // Admin view
-  if (view === "admin") {
-    return <AdminDashboard onBack={() => setView("chat")} />;
   }
+
+  // ============================================================
+  //          ADMIN STATE + MODAL + DASHBOARD RENDER
+  // ============================================================
+
+  if (view === "admin") {
+    if (!adminKey) {
+      // show admin code modal
+      return (
+        <AdminModal
+          open={true}
+          onClose={() => {
+            setView("chat");
+          }}
+          onSuccess={(validCode) => {
+            setAdminKey(validCode);
+          }}
+        />
+      );
+    }
+
+    // If adminKey exists → show dashboard
+    return (
+      <AdminDashboard
+        adminKey={adminKey}
+        onBack={() => {
+          setView("chat");
+        }}
+      />
+    );
+  }
+
+  // ============================================================
+  //                           UI
+  // ============================================================
 
   return (
     <div
-      className={`flex h-screen relative overflow-hidden ${BEIGE.bg} bg-gradient-to-br from-[#F7F2E7] via-[#F3EAD9] to-[#F9EDD2]`}
+      className={`flex h-screen ${THEME.appBg}`}
+      style={{
+        fontFamily:
+          'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Segoe UI, sans-serif',
+      }}
     >
-      {/* Ambient blobs */}
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <div className="absolute top-20 left-20 w-72 h-72 rounded-full blur-3xl bg-gradient-to-br from-[#E7B157] to-[#FFD48A] animate-pulse" />
-        <div className="absolute bottom-20 right-20 w-96 h-96 rounded-full blur-3xl bg-gradient-to-br from-[#F0C36A] to-[#FFDFA6] animate-pulse delay-1000" />
-        <div className="absolute top-1/2 left-1/3 w-64 h-64 rounded-full blur-2xl bg-gradient-to-br from-[#E3A545] to-[#FFC96D] animate-pulse delay-500" />
-      </div>
-
-      {/* Sidebar */}
+      {/* ============================================================
+                      SIDEBAR
+      ============================================================ */}
       <aside
-        className={`w-80 ${BEIGE.panel} backdrop-blur-2xl border-r ${BEIGE.border} flex flex-col relative z-10`}
+        className={`${sidebarCollapsed ? "w-16" : "w-80"} ${
+          THEME.sidebarBg
+        } border-r ${THEME.sidebarBorder} flex flex-col transition-all duration-300`}
       >
-        <div className={`h-20 px-6 border-b ${BEIGE.border} flex items-center`}>
-          <div className="flex items-center gap-3">
-            <Image
-              src="/zuzu.png"
-              alt="ZUZU"
-              width={48}
-              height={48}
-              className="select-none pointer-events-none drop-shadow-[0_0_12px_rgba(232,181,96,0.45)]"
-              priority
-              unoptimized
-            />
-            <div className="leading-tight">
-              <h1
-                className={`text-2xl font-bold bg-gradient-to-r ${BEIGE.accentFrom} ${BEIGE.accentTo} bg-clip-text text-transparent`}
-              >
-                ZUZU
-              </h1>
-              <p className="text-[#B4883A] text-xs font-medium">AI Assistant</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-4 flex-1 overflow-auto">
-          <button
-            onClick={() => void createConvo()}
-            className={`w-full p-4 bg-gradient-to-r ${BEIGE.accentFrom} via-[#E8B560] ${BEIGE.accentTo} text-white rounded-2xl hover:shadow-2xl hover:shadow-[#E8B560]/40 transition-all duration-300 flex items-center justify-center space-x-3 group`}
-          >
-            <div className="p-1 bg-white/20 rounded-lg">
-              <Plus size={18} />
-            </div>
-            <span className="font-semibold">New Conversation</span>
-            <Zap size={16} className="group-hover:animate-bounce" />
-          </button>
-
-          {/* Conversations list with DELETE on the SIDEBAR */}
-          {convos.length === 0 ? (
-            <div className="text-[#B4883A]/70 text-sm">
-              Recent chats will appear here.
+        {/* Header */}
+        <div className="h-20 px-4 flex items-center justify-between">
+          {!sidebarCollapsed ? (
+            <div>
+              <h1 className={`text-2xl font-extrabold ${THEME.brand}`}>ZUZU</h1>
+              <p className={`text-xs ${THEME.textSub}`}>Onboarding assistant</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {convos.map((c) => {
-                const isActive = c.id === activeId;
-                return (
-                  <div
-                    key={c.id}
-                    className={`group flex items-center gap-2 rounded-xl border ${BEIGE.border} px-3 py-2 cursor-pointer transition ${
-                      isActive ? "bg-white/60" : "hover:bg-white/40"
-                    }`}
-                    onClick={() => setActiveId(c.id)}
-                  >
-                    <MessageSquare size={18} className={BEIGE.text2} />
-                    <div className="flex-1 min-w-0">
-                      <div
-                        className={`truncate text-sm font-medium ${BEIGE.text1}`}
-                      >
-                        {c.title}
-                      </div>
-                      <div className="text-xs text-[#A9884A]">
-                        {new Date(c.createdAt).toLocaleDateString()}
-                      </div>
-                    </div>
-
-                    <button
-                      className="opacity-70 hover:opacity-100 p-2 rounded-lg hover:bg-white/60 transition"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteConvo(c.id);
-                      }}
-                      aria-label="Delete conversation"
-                      title="Delete conversation"
-                    >
-                      <Trash size={16} className="text-[#A2711F]" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+            <h1 className={`text-xl font-extrabold ${THEME.brand}`}>Z</h1>
           )}
+
+          <button
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            className="rounded-full border border-[#F3C58C] bg-[#FFEFD9] p-1.5 hover:bg-white transition"
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight size={16} className={THEME.textSub} />
+            ) : (
+              <ChevronLeft size={16} className={THEME.textSub} />
+            )}
+          </button>
         </div>
 
-        <div className="p-6 border-t border-[#EAC999]/50 space-y-3">
+        {/* New conversation */}
+        <div className="px-3">
+          <button
+            onClick={() => createNewConversation(false)}
+            className={`w-full flex items-center justify-center gap-2 rounded-full ${THEME.brandBg} ${THEME.brandBgHover} text-white py-2.5 text-sm font-semibold`}
+          >
+            <Plus size={16} />
+            {!sidebarCollapsed && "New Conversation"}
+          </button>
+        </div>
+
+        {/* Conversation List */}
+        {!sidebarCollapsed && (
+          <div className="p-3 space-y-1 flex-1 overflow-auto">
+            {convos.map((c) => {
+              const active = c.id === activeId;
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => setActiveId(c.id)}
+                  className={`group flex items-center gap-2 rounded-md px-3 py-2 cursor-pointer ${
+                    active
+                      ? "bg-[#FF8A00] text-white"
+                      : "hover:bg-[#FFE5C9] text-[#5C3B1F]"
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {c.title}
+                    </div>
+
+                    <div className="text-[11px] opacity-80">
+                      {timeAgo(c.createdAt)}
+                    </div>
+                  </div>
+
+                  {/* delete */}
+                  <button
+                    className={`p-1 rounded-full hover:bg-black/5 ${
+                      active ? "text-white" : THEME.textSub
+                    } opacity-0 group-hover:opacity-100`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteConvo(c.id);
+                    }}
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Admin Dashboard Button */}
+        <div className="p-3 border-t border-[#F3C58C]">
           <button
             onClick={() => setView("admin")}
-            className="w-full p-3 text-left rounded-xl flex items-center gap-3 transition hover:bg-white/50"
+            className="w-full flex items-center justify-center gap-2 rounded-full border border-[#F3C58C] bg-[#FFEFD9] py-2.5 text-xs hover:bg-white"
           >
-            <div className="p-1 bg-[#E8B560]/30 rounded-lg">
-              <BarChart3 size={16} className={BEIGE.text1} />
-            </div>
-            <span className={`text-sm font-medium ${BEIGE.text1}`}>
-              Admin Dashboard
-            </span>
-            <TrendingUp size={14} className="ml-auto text-[#C5933C]" />
+            <BarChart3 size={16} className={THEME.textSub} />
+            {!sidebarCollapsed && "Admin Dashboard"}
           </button>
         </div>
       </aside>
 
-      {/* Main Chat */}
-      <main className="flex-1 flex flex-col relative z-10">
-        {/* Header */}
-        <div
-          className={`h-20 ${BEIGE.panel} backdrop-blur-2xl border-b ${BEIGE.border}`}
-        >
-          <div className="h-full px-6 flex items-center">
-            <div className="flex items-center gap-3">
-              <div
-                className="h-7 w-7"
-                style={{
-                  WebkitMaskImage: "url('/zuzu-logo.svg')",
-                  maskImage: "url('/zuzu-logo.svg')",
-                  WebkitMaskSize: "contain",
-                  maskSize: "contain",
-                  WebkitMaskRepeat: "no-repeat",
-                  maskRepeat: "no-repeat",
-                  WebkitMaskPosition: "center",
-                  maskPosition: "center",
-                  background: "linear-gradient(90deg, #D49A3A, #E8B560)",
-                }}
-              />
-              <div>
-                <h2 className={`text-lg font-bold ${BEIGE.text2}`}>
-                  Here to help
-                </h2>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span className="text-green-600 text-sm font-medium">
-                    Online
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Hero (no messages) */}
-        {!activeConvo || activeConvo.messages.length === 0 ? (
-          <div className="flex-1 grid place-items-center pointer-events-none">
-            <div className="text-center p-6">
-              <Image
-                src="/zuzu-logo.svg"
-                alt="ZUZU Logo"
-                width={280}
-                height={280}
-                className="mx-auto"
-                priority
-                unoptimized
-              />
-              <h1 className="mt-5 text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-[#D49A3A] to-[#E8B560] bg-clip-text text-transparent">
-                Hi, How can I help you?
-              </h1>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      {/* ============================================================
+                          MAIN CHAT AREA
+      ============================================================ */}
+      <main className="flex-1 flex flex-col">
+        <div className="flex-1 overflow-y-auto px-10 py-8 space-y-6">
+          {/* ============================================================
+                        RENDER ALL MESSAGES
+          ============================================================ */}
           {activeConvo?.messages.map((m) => {
             const isUser = m.role === "user";
+
             return (
               <div
                 key={m.id}
-                className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                className={`flex ${isUser ? "justify-end" : "justify-start"} gap-3`}
               >
-                <div
-                  className={`relative max-w-2xl px-6 py-4 rounded-3xl border shadow ${
-                    isUser
-                      ? `bg-gradient-to-r ${BEIGE.accentFrom} ${BEIGE.accentTo} ${BEIGE.white} ${BEIGE.border} shadow-[#E8B560]/30`
-                      : `${BEIGE.panel} ${BEIGE.text1} ${BEIGE.border} shadow-[#E8B560]/20`
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {!isUser && (
-                      <div className="w-10 h-10 mt-1 flex-shrink-0 grid place-items-center rounded-xl bg-white/70">
-                        <Bot size={18} className="text-[#C2872F]" />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <p className="leading-relaxed font-medium">{m.content}</p>
-                      <div className="mt-3 text-xs text-[#9E7C42]">
-                        {timeHHMM(m.ts)}
-                      </div>
+                {/* BOT avatar */}
+                {!isUser && (
+                  <div className="flex items-start pt-4">
+                    <div className="w-9 h-9 grid place-items-center">
+                      <Image
+                        src="/zuzu.png"
+                        alt="ZUZU"
+                        width={32}
+                        height={32}
+                        className="rounded-full"
+                      />
                     </div>
                   </div>
+                )}
+
+                {/* Bubble */}
+                <div
+                  className={`max-w-2xl rounded-3xl border ${THEME.bubbleBorder} px-6 py-4 shadow ${
+                    isUser ? THEME.bubbleUserBg : THEME.bubbleBotBg
+                  }`}
+                >
+                  <div className="flex flex-col gap-2">
+                    {isUser ? (
+                      <p className={THEME.textMain}>{m.content}</p>
+                    ) : (
+                      <div className={`prose max-w-none ${THEME.textMain}`}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeSanitize]}
+                        >
+                          {m.content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
+
+                    <span className={`text-[11px] ${THEME.textSub} self-end`}>
+                      {timeHHMM(m.ts)}
+                    </span>
+                  </div>
                 </div>
+
+                {/* USER avatar */}
+                {isUser && (
+                  <div className="flex items-start pt-4">
+                    <div className="w-9 h-9 rounded-full border border-[#F3C58C] bg-[#FFEFD9] grid place-items-center">
+                      <User size={18} className={THEME.textSub} />
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
 
-          {isTyping && (
+          {/* ============================================================
+                      CATEGORY STEP
+          ============================================================ */}
+          {flowStep === "categories" && (
             <div className="flex justify-start">
-              <div
-                className={`px-6 py-4 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-2xl grid place-items-center bg-gradient-to-br from-[#D49A3A] to-[#E8B560] shadow">
-                    <Bot size={14} className="text-white" />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-[#D49A3A] to-[#E8B560] animate-bounce" />
-                    <div
-                      className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-[#D49A3A] to-[#E8B560] animate-bounce"
-                      style={{ animationDelay: "0.1s" }}
-                    />
-                    <div
-                      className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-[#D49A3A] to-[#E8B560] animate-bounce"
-                      style={{ animationDelay: "0.2s" }}
-                    />
-                  </div>
-                  <span className="text-[#B4883A] text-sm">Thinking…</span>
+              <div className="max-w-xl rounded-3xl border border-[#F3C58C] bg-white px-6 py-6 shadow">
+                <div className="flex gap-3 items-start mb-4">
+                  <Image
+                    src="/zuzu.png"
+                    width={28}
+                    height={28}
+                    alt="ZUZU"
+                    className="rounded-full mt-1"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {ZUZU_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        setFlowStep("subcategories");
+                      }}
+                      className="
+                        w-full rounded-xl bg-[#FBF2E4] hover:bg-[#FFE5C9]
+                        border border-[#F3C58C] py-3 px-4 text-left
+                        font-semibold text-[#5C3B1F]
+                      "
+                    >
+                      {cat}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
           )}
-          <div ref={messagesEndRef} />
+
+          {/* ============================================================
+                    SUBCATEGORY STEP
+          ============================================================ */}
+          {flowStep === "subcategories" && selectedCategory && (
+            <div className="flex justify-start">
+              <div className="max-w-xl rounded-3xl border border-[#F3C58C] bg-white px-6 py-6 shadow">
+                <div className="flex gap-3 items-start mb-4">
+                  <Image
+                    src="/zuzu.png"
+                    width={28}
+                    height={28}
+                    alt="ZUZU"
+                    className="rounded-full mt-1"
+                  />
+                  <div>
+                    <p className={`${THEME.textMain} text-sm`}>
+                      Sections under:
+                    </p>
+                    <p className="font-semibold">{selectedCategory}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {ZUZU_SUBCATEGORIES[selectedCategory]?.map((sub) => (
+                    <button
+                      key={sub}
+                      onClick={() => {
+                        const ctx = `${selectedCategory} → ${sub}`;
+                        setFlowStep("chat");
+                        setSelectedCategory(null);
+                        sendMessageWithText(ctx);
+                      }}
+                      className="
+                        w-full text-left rounded-xl bg-[#FBF2E4]
+                        hover:bg-[#FFE5C9] border border-[#F3C58C]
+                        py-3 px-4 font-semibold text-[#5C3B1F]
+                      "
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex justify-end mt-3">
+                  <button
+                    className="text-xs underline text-[#A06A32]"
+                    onClick={() => {
+                      setFlowStep("categories");
+                      setSelectedCategory(null);
+                    }}
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Typing bubble */}
+          {isTyping && (
+            <div className="flex justify-start gap-3">
+              <div className="flex items-start pt-4">
+                <Image
+                  src="/zuzu.png"
+                  width={32}
+                  height={32}
+                  alt="ZUZU"
+                  className="rounded-full"
+                />
+              </div>
+
+              <div
+                className={`px-5 py-3 rounded-3xl border ${THEME.bubbleBorder} bg-white shadow`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-[#FF8A00] rounded-full animate-bounce" />
+                  <div
+                    className="w-2 h-2 bg-[#FF8A00] rounded-full animate-bounce"
+                    style={{ animationDelay: "0.15s" }}
+                  />
+                  <div
+                    className="w-2 h-2 bg-[#FF8A00] rounded-full animate-bounce"
+                    style={{ animationDelay: "0.3s" }}
+                  />
+                  <span className="text-xs text-[#A06A32]">Thinking…</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
         </div>
 
-        {/* Composer */}
-        <div
-          className={`p-6 border-t ${BEIGE.border} ${BEIGE.panel} backdrop-blur-2xl`}
-        >
-          <div className="flex items-end gap-4">
-            <div className="flex-1 relative">
-              <div className="absolute inset-0 rounded-3xl blur-xl bg-gradient-to-r from-[#D49A3A]/15 to-[#E8B560]/15" />
+        {/* ============================================================
+                        MESSAGE COMPOSER
+        ============================================================ */}
+        <div className={`px-8 py-4 border-t ${THEME.sidebarBorder} bg-[#FBDDBD]`}>
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-[#FFEFD9] border border-[#F3C58C] flex items-center justify-center">
+              <User size={18} className={THEME.textSub} />
+            </div>
+
+            <div className="flex-1">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder="Ask ZUZU anything about International students Onboarding..."
-                className={`w-full px-6 py-4 rounded-3xl border ${BEIGE.border} focus:outline-none focus:ring-2 focus:ring-[#E8B560] resize-none max-h-32 relative z-10 ${BEIGE.bg} ${BEIGE.text1} placeholder-[#B4883A]/70 font-medium`}
+                onKeyDown={handleKey}
+                placeholder="Ask ZUZU anything…"
                 rows={1}
+                className={`
+                  w-full resize-none rounded-full border ${THEME.sidebarBorder} 
+                  bg-white px-6 py-3 text-sm ${THEME.textMain}
+                  placeholder-[#C38A4A] focus:outline-none focus:ring-2
+                  focus:ring-[#FF9E1E]
+                `}
               />
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[#C5933C]">
-                <Sparkles size={18} />
-              </div>
             </div>
+
             <button
-              onClick={() => void sendMessage()}
+              onClick={sendMessage}
               disabled={!input.trim()}
-              className={`p-4 rounded-3xl text-white bg-gradient-to-r ${BEIGE.accentFrom} ${BEIGE.accentTo} transition hover:shadow-xl hover:shadow-[#E8B560]/40 disabled:opacity-50 disabled:cursor-not-allowed`}
+              className={`
+                h-11 w-11 rounded-full ${THEME.brandBg} ${THEME.brandBgHover}
+                text-white flex items-center justify-center shadow
+                disabled:opacity-40 disabled:cursor-not-allowed
+              `}
             >
-              <Send size={20} />
+              <Send size={18} />
             </button>
           </div>
         </div>
@@ -521,222 +862,434 @@ export default function ZuzuApp() {
   );
 }
 
-// ================= ADMIN =================
-function AdminDashboard({ onBack }: { onBack: () => void }) {
-  const [tf, setTf] = useState<"24h" | "7d" | "30d" | "90d">("7d");
-  const [data, setData] = useState<ZuzuAnalytics | null>(null);
-  const [error, setError] = useState<string | null>(null);
+/* ============================================================
+   ADMIN PORTAL (ACCESS MODAL + DASHBOARD)
+   ============================================================ */
 
-  useEffect(() => {
-    let ok = true;
-    (async () => {
-      try {
-        const d = await loadAnalytics(tf);
-        if (!ok) return;
-        setData(d);
-        setError(null);
-      } catch {
-        if (!ok) return;
-        setError(
-          "Failed to load analytics. Is /api/analytics proxied to the backend?"
-        );
-        setData(null);
-      }
-    })();
-    return () => {
-      ok = false;
-    };
-  }, [tf]);
+/* ------------------------------------------------------------
+   VERIFY ADMIN TOKEN (CALLS BACKEND)
+------------------------------------------------------------ */
+async function verifyAdminToken(token: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-  return (
-    <div
-      className={`min-h-screen relative overflow-hidden ${BEIGE.bg} bg-gradient-to-br from-[#F7F2E7] via-[#F3EAD9] to-[#F9EDD2]`}
-    >
-      <div className="absolute inset-0 opacity-10 pointer-events-none">
-        <div className="absolute top-10 left-10 w-96 h-96 rounded-full blur-3xl bg-gradient-to-br from-[#E7B157] to-[#FFD48A] animate-pulse" />
-        <div className="absolute bottom-10 right-10 w-80 h-80 rounded-full blur-3xl bg-gradient-to-br from-[#F0C36A] to-[#FFDFA6] animate-pulse delay-1000" />
-        <div className="absolute top-1/3 right-1/3 w-64 h-64 rounded-full blur-2xl bg-gradient-to-br from-[#E3A545] to-[#FFC96D] animate-pulse delay-500" />
-      </div>
+  try {
+    const res = await fetch(`${API_BASE}/admin/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Device-Id": DEVICE_ID,
+      },
+      body: JSON.stringify({ token }),
+      signal: controller.signal,
+    });
 
-      <header
-        className={`p-6 border-b ${BEIGE.border} ${BEIGE.panel} backdrop-blur-2xl relative z-10`}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={onBack}
-              className="p-3 rounded-2xl hover:bg-white/60 transition"
-              title="Back to chat"
-            >
-              <MessageSquare className="text-[#B4883A]" size={22} />
-            </button>
-            <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-[#D49A3A] via-[#E8B560] to-[#D49A3A] bg-clip-text text-transparent">
-                ZUZU Admin
-              </h1>
-              <p className="text-[#B4883A]">Intelligence Dashboard</p>
-            </div>
-          </div>
+    if (!res.ok) {
+      throw new Error(`Admin verify failed: ${res.status} ${res.statusText}`);
+    }
 
-          <div className="flex items-center gap-4">
-            <div className="px-4 py-2 rounded-2xl border border-green-400/30 bg-green-100/40">
-              <span className="text-green-700 text-sm font-semibold">● LIVE</span>
-            </div>
-            <select
-              value={tf}
-              onChange={(e) => setTf(e.target.value as typeof tf)}
-              className="px-4 py-2 rounded-2xl border border-[#EAC999]/60 bg-white/70 text-[#5A4525] font-medium focus:outline-none focus:ring-2 focus:ring-[#E8B560]"
-            >
-              <option value="24h">Last 24 hours</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="90d">Last 90 days</option>
-            </select>
-          </div>
-        </div>
-      </header>
+    const data = await res.json();
+    return data.valid === true;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
-      <div className="p-8 relative z-10">
-        {/* Total Questions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          <div
-            className={`p-6 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-2xl grid place-items-center bg-gradient-to-r from-[#6DB0FF] to-[#59D4E0] text-white shadow">
-                <MessageSquare size={20} />
-              </div>
-              <div className="text-[#B4883A] text-sm font-semibold">Total</div>
-            </div>
-            <div>
-              <p className="text-[#7A6239] text-sm font-medium mb-1">
-                Total Questions
-              </p>
-              <p className="text-3xl font-bold text-[#5A4525]">
-                {data ? data.totalQuestions.toLocaleString() : "—"}
-              </p>
-            </div>
-          </div>
-        </div>
+/* ------------------------------------------------------------
+   ADMIN ACCESS MODAL
+------------------------------------------------------------ */
+function AdminModal({
+  open,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: (token: string) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 mb-10">
-          {/* Categories */}
-          <div
-            className={`xl:col-span-2 p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-          >
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-2xl font-bold text-[#5A4525]">
-                Question Categories
-              </h3>
-              <div className="px-3 py-1 rounded-full border border-[#EAC999]/60 bg-white/60">
-                <span className="text-[#B4883A] text-sm font-semibold">LIVE</span>
-              </div>
-            </div>
-            {data ? (
-              <CategoriesView data={data} />
-            ) : (
-              <div className="text-[#A9884A] text-sm">
-                Connect /api/analytics to populate categories.
-              </div>
-            )}
-          </div>
+  if (!open) return null;
 
-          {/* Live activity placeholder */}
-          <div
-            className={`p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
-          >
-            <h3 className="text-2xl font-bold text-[#5A4525] mb-6">
-              Live Activity
-            </h3>
-            <div className="text-[#A9884A] text-sm">
-              Hook a websocket or polling endpoint to render recent events here.
-            </div>
-          </div>
-        </div>
+  return createPortal(
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]">
+      <div className="w-[95%] max-w-sm rounded-2xl bg-white border border-[#F3C58C] shadow-xl p-6 text-center">
+        <Lock size={40} className="mx-auto text-[#A06A32] mb-3" />
+        <h2 className="text-xl font-bold text-[#5C3B1F]">
+          Admin Access Required
+        </h2>
+        <p className="text-sm text-[#A06A32] mt-2 mb-4">
+          Enter your admin access code to continue.
+        </p>
 
-        {/* Weekly */}
-        <div
-          className={`p-8 rounded-3xl border ${BEIGE.border} ${BEIGE.panel} shadow`}
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Enter access code"
+          className="w-full border border-[#F3C58C] rounded-xl px-4 py-2 text-sm focus:outline-none
+                     focus:ring-2 focus:ring-[#FF8A00]"
+        />
+
+        {error && <p className="text-red-600 text-xs mt-2">{error}</p>}
+
+        <button
+          disabled={!code.trim() || checking}
+          onClick={async () => {
+            setChecking(true);
+            setError("");
+            try {
+              const ok = await verifyAdminToken(code.trim());
+              if (!ok) {
+                setError("Invalid access code");
+                return;
+              }
+              onSuccess(code.trim());
+            } catch {
+              setError("Unable to verify admin code. Please try again.");
+            } finally {
+              setChecking(false);
+            }
+          }}
+          className="mt-4 w-full rounded-full bg-[#FF8A00] hover:bg-[#FF9E1E] text-white py-2
+                     font-semibold shadow disabled:opacity-40"
         >
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-2xl font-bold text-[#5A4525]">
-              Weekly Performance
-            </h3>
-          </div>
-          {data ? (
-            <div className="h-80 flex items-end justify-between gap-3">
-              {data.dailyQuestions.map((d, i) => {
-                const max = Math.max(
-                  ...data.dailyQuestions.map((x) => x.questions),
-                  1
-                );
-                const height = (d.questions / max) * 250;
-                return (
-                  <div key={i} className="flex flex-col items-center flex-1 gap-2">
-                    <div className="w-full">
-                      <div
-                        className="w-full rounded-t-2xl bg-gradient-to-t from-[#D49A3A] to-[#E8B560] transition-all"
-                        style={{ height }}
-                      />
-                    </div>
-                    <span className="text-[#7A6239] text-sm font-medium">
-                      {d.date}
-                    </span>
-                    <div className="text-center text-[#5A4525] font-bold text-sm">
-                      {d.questions}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-[#A9884A] text-sm">
-              Connect /api/analytics to populate weekly performance.
-            </div>
-          )}
-          {error && <div className="mt-6 text-rose-600 text-sm">{error}</div>}
-        </div>
+          {checking ? "Checking…" : "Enter Dashboard"}
+        </button>
+
+        <button
+          onClick={onClose}
+          className="mt-3 text-xs text-[#A06A32] underline"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/* ------------------------------------------------------------
+   FETCH DASHBOARD DATA FROM BACKEND
+   (expects raw output from /api/analytics)
+------------------------------------------------------------ */
+async function fetchDashboard(adminKey: string) {
+  const res = await fetch(`${API_BASE}/analytics`, {
+    headers: {
+      "X-Admin-Key": adminKey,
+      "X-Device-Id": DEVICE_ID,
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Analytics fetch failed: ${res.status} ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+/* ------------------------------------------------------------
+   SIMPLE BAR ROW (USED FOR CONSISTENCY + OTHER BARS)
+------------------------------------------------------------ */
+function BarRow({
+  label,
+  value,
+  max,
+  color,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  color?: string;
+}) {
+  const pct = max ? (value / max) * 100 : 0;
+  return (
+    <div>
+      <div className="flex justify-between text-xs">
+        <span>{label}</span>
+        <span>{value.toFixed(0)}</span>
+      </div>
+      <div className="h-2 bg-[#F3D4AA] rounded-full overflow-hidden mt-1">
+        <div
+          className="h-full"
+          style={{
+            width: `${pct}%`,
+            backgroundColor: color || "#FF8A00",
+          }}
+        />
       </div>
     </div>
   );
 }
 
-function CategoriesView({ data }: { data: ZuzuAnalytics }) {
-  const order = [
-    "Housing",
-    "Admissions",
-    "Travel",
-    "Forms and Documentations",
-    "Visa and Immigrations",
-    "Phone and Communication",
-    "Other Inquiries",
+/* ------------------------------------------------------------
+   MAIN ADMIN DASHBOARD
+------------------------------------------------------------ */
+export function AdminDashboard({
+  adminKey,
+  onBack,
+}: {
+  adminKey: string;
+  onBack: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [d, setD] = useState<any | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const json = await fetchDashboard(adminKey);
+        setD(json);
+      } catch (err: any) {
+        console.error("Failed to load analytics", err);
+        setError("Failed to load analytics from server.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [adminKey]);
+
+  if (loading) {
+    return (
+      <div className={`absolute inset-0 ${THEME.appBg} flex items-center justify-center`}>
+        <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] px-6 py-4 shadow">
+          <p className={`${THEME.textMain} text-sm`}>Loading analytics…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !d) {
+    return (
+      <div className={`absolute inset-0 ${THEME.appBg} flex items-center justify-center`}>
+        <div className="rounded-2xl border border-red-300 bg-red-50 px-6 py-4 shadow">
+          <p className="text-sm text-red-700">{error ?? "No analytics data."}</p>
+          <button
+            onClick={onBack}
+            className="mt-3 px-4 py-2 rounded-full bg-[#FF8A00] hover:bg-[#FF9E1E] text-white text-xs"
+          >
+            Back to chat
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // d is the raw output from backend /api/analytics
+  const totals = d.totals || {};
+  const byDay = d.by_day || [];
+  const topCategories = d.top_categories || [];
+  const consistencyScore = d.consistencyScore ?? 0;
+  const consistencyByCategory = d.consistencyByCategory || {};
+
+  // -------- PIE CHART DATA (12 fixed categories) --------
+  const CATEGORY_COLORS = [
+    "#FF8A00", // Housing
+    "#FFC107", // Admissions
+    "#7C3AED", // Visa and Immigration
+    "#0EA5E9", // Travel and Arrival
+    "#22C55E", // Forms and Documentation
+    "#16A34A", // Money and Banking
+    "#F97316", // Campus Life and Academics
+    "#EC4899", // Health and Safety
+    "#10B981", // Phone and Connectivity
+    "#6366F1", // Work and Career
+    "#F59E0B", // Community and Daily Life
+    "#3B82F6", // Other Inquiries
   ];
-  const counts = new Map<string, number>();
-  (data.questionCategories || []).forEach((c) => counts.set(c.category, c.count));
-  const max = Math.max(...order.map((k) => counts.get(k) ?? 0), 1);
+
+  const countsByCat: Record<string, number> = {};
+  topCategories.forEach((c: any) => {
+    countsByCat[c.category] = c.count;
+  });
+
+  const chartData = ZUZU_CATEGORIES.map((name, idx) => ({
+    label: name,
+    value: countsByCat[name] ?? 0,
+    color: CATEGORY_COLORS[idx % CATEGORY_COLORS.length],
+  }));
+
+  const totalForPie =
+    chartData.reduce((sum, s) => sum + (s.value || 0), 0) || 1;
 
   return (
-    <div className="space-y-6">
-      {order.map((label) => {
-        const val = counts.get(label) ?? 0;
-        const pct = Math.min(100, (val / max) * 100);
-        return (
-          <div key={label} className="group">
-            <div className="flex justify-between items-center mb-3">
-              <span className="text-[#5A4525] font-semibold">{label}</span>
-              <span className="text-[#B4883A] font-bold">
-                {val.toLocaleString()}
-              </span>
+    <div className={`absolute inset-0 ${THEME.appBg} overflow-auto`}>
+      {/* HEADER */}
+      <header
+        className={`p-5 border-b ${THEME.sidebarBorder} ${THEME.sidebarBg}`}
+      >
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="p-2 rounded-full border border-[#F3C58C] bg-[#FFEFD9] hover:bg-white transition"
+          >
+            <ArrowLeft size={18} className={THEME.textSub} />
+          </button>
+
+          <div>
+            <h1 className={`text-2xl font-extrabold ${THEME.brand}`}>
+              ZUZU Admin
+            </h1>
+            <p className={`text-xs mt-1 ${THEME.textSub}`}>
+              Analytics &amp; Insights
+            </p>
+          </div>
+        </div>
+      </header>
+
+      {/* BODY */}
+      <main className="p-5 space-y-6">
+        {/* TOP CARDS */}
+        <div className="grid gap-4 md:grid-cols-4">
+          {/* Total Users */}
+          <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+            <p className="text-[11px] font-semibold text-[#A06A32]">
+              Total Users
+            </p>
+            <p className="text-3xl font-bold">
+              {totals.distinct_devices ?? 0}
+            </p>
+          </div>
+
+          {/* Total Questions */}
+          <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+            <p className="text-[11px] font-semibold text-[#A06A32]">
+              Total Questions
+            </p>
+            <p className="text-3xl font-bold">
+              {totals.chats ?? 0}
+            </p>
+          </div>
+
+          {/* PII Alerts */}
+          <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+            <p className="text-[11px] font-semibold text-[#A06A32]">
+              PII Alerts
+            </p>
+            <p className="text-3xl font-bold">
+              {totals.pii_flags ?? 0}
+            </p>
+          </div>
+
+          {/* Consistency */}
+          <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+            <p className="text-[11px] font-semibold text-[#A06A32]">
+              Overall Consistency
+            </p>
+            <p className="text-3xl font-bold">
+              {Math.round(consistencyScore)}%
+            </p>
+          </div>
+        </div>
+
+        {/* QUESTIONS BY CATEGORY – CENTERED PIE CHART */}
+        <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <PieChartIcon size={18} className={THEME.textSub} />
+            <h2 className={`text-sm font-semibold ${THEME.textMain}`}>
+              Questions by Category
+            </h2>
+          </div>
+
+          <div className="flex flex-col items-center gap-6 md:flex-row md:items-center md:justify-center">
+            {/* Pie chart centered */}
+            <div className="w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <RePieChart>
+                  <Pie
+                    data={chartData}
+                    dataKey="value"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius="80%"
+                    innerRadius={0}
+                    paddingAngle={1}
+                    isAnimationActive={false}
+                  >
+                    {chartData.map((slice) => (
+                      <Cell key={slice.label} fill={slice.color} />
+                    ))}
+                  </Pie>
+                </RePieChart>
+              </ResponsiveContainer>
             </div>
-            <div className="h-3 bg-[#EEDFC0] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-[#D49A3A] via-[#E8B560] to-[#D49A3A] rounded-full transition-all"
-                style={{ width: `${pct}%` }}
-              />
+
+            {/* Legend: color + label only */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              {chartData.map((slice) => (
+                <div key={slice.label} className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-3 h-3 rounded-full"
+                    style={{ backgroundColor: slice.color }}
+                  />
+                  <span className={THEME.textMain}>{slice.label}</span>
+                </div>
+              ))}
             </div>
           </div>
-        );
-      })}
+        </div>
+
+        {/* CONSISTENCY BY CATEGORY */}
+        <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+          <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
+            Consistency by Category
+          </h2>
+
+          <div className="space-y-3">
+            {Object.entries(consistencyByCategory).map(([cat, v]) => {
+              const idx = ZUZU_CATEGORIES.indexOf(cat);
+              const color =
+                idx >= 0 ? CATEGORY_COLORS[idx] : "#FF8A00";
+
+              return (
+                <BarRow
+                  key={cat}
+                  label={cat}
+                  value={Number(v)}
+                  max={100}
+                  color={color}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* DAILY USAGE (LAST 7 DAYS) */}
+        <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+          <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
+            Usage (last 7 days)
+          </h2>
+
+          <div className="flex gap-1 items-end h-40">
+            {byDay.length === 0 ? (
+              <p className={`${THEME.textSub} text-xs`}>
+                No usage data yet.
+              </p>
+            ) : (
+              byDay.map((row: any) => {
+                const maxCount = Math.max(...byDay.map((x: any) => x.count));
+                const pct = maxCount ? (row.count / maxCount) * 100 : 0;
+
+                return (
+                  <div
+                    key={row.date}
+                    className="flex-1 flex flex-col items-center"
+                  >
+                    <div
+                      className="w-full bg-[#FF8A00] rounded-t-full"
+                      style={{ height: `${pct}%` }}
+                    />
+                    <span className="text-[10px] text-[#A06A32] mt-1">
+                      {row.date.slice(5)}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

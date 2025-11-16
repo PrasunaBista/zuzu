@@ -1,0 +1,77 @@
+// components/SidebarChatItem.tsx
+
+"use client";
+
+import React from "react";
+import { Trash } from "lucide-react";
+import { timeAgo } from "./TimeAgo";
+
+interface SidebarChatItemProps {
+  id: string;
+  title: string;
+  createdAt: number;
+  active: boolean;
+  onClick: () => void;
+  onDelete: () => void;
+  collapsed: boolean;
+}
+
+export default function SidebarChatItem({
+  id,
+  title,
+  createdAt,
+  active,
+  onClick,
+  onDelete,
+  collapsed,
+}: SidebarChatItemProps) {
+  return (
+    <div
+      onClick={onClick}
+      className={`
+        group
+        flex items-center 
+        rounded-md 
+        px-3 py-2 
+        cursor-pointer 
+        transition
+        ${active ? "bg-[#FF8A00] text-white" : "hover:bg-[#FFE5C9] text-[#5C3B1F]"}
+      `}
+    >
+      {/* Collapsed ONLY shows a small colored dot */}
+      {collapsed ? (
+        <div
+          className={`
+            w-2 h-2 rounded-full mr-2
+            ${active ? "bg-white" : "bg-[#A06A32]"}
+          `}
+        />
+      ) : (
+        <div className="flex-1 min-w-0">
+          <div className="truncate text-sm font-medium">{title}</div>
+          <div className="text-[11px] opacity-80">
+            {timeAgo(createdAt)}
+          </div>
+        </div>
+      )}
+
+      {/* Delete button */}
+      {!collapsed && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className={`
+            ml-auto p-1 rounded-full 
+            hover:bg-black/5 transition
+            ${active ? "text-white" : "text-[#A06A32]"}
+            opacity-0 group-hover:opacity-100
+          `}
+        >
+          <Trash size={14} />
+        </button>
+      )}
+    </div>
+  );
+}

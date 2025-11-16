@@ -1,21 +1,30 @@
+# app/main.py
 import os
-import orjson
 from uuid import uuid4, UUID
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException
+from typing import Optional, List
+
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi import APIRouter
+from pydantic import BaseModel
+from dotenv import load_dotenv
+load_dotenv()
+
 from .schemas import (
-    ChatCreate, ChatSummary, ChatPost, ChatReply,
-    AnalyticsResponse, SearchRequest, SearchResponse
+    ChatCreate,
+    ChatSummary,
+    ChatPost,
+    ChatReply,
+    SearchRequest,
+    SearchResponse,
 )
 from .db import pool, ensure_schema
 from .storage import append_message, get_chat, delete_chat, get_last_messages
 from .llm import chat_complete, summarize_history
 from .analytics import get_analytics
 from .search import search_docs
-from .utils import naive_category
+from .utils import naive_category, contains_pii, mask_pii
 
 app = FastAPI(title="ZUZU Backend")
 
@@ -28,262 +37,271 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # --------- Env toggles ---------
-SOURCES_TOPK = int(os.getenv("SOURCES_TOPK", "3"))                 # how many URLs to attach
+SOURCES_TOPK = int(os.getenv("SOURCES_TOPK", "3"))
 APPEND_SOURCES = os.getenv("APPEND_SOURCES", "true").lower() == "true"
 
-MEMORY_LAST_TURNS = int(os.getenv("MEMORY_LAST_TURNS", "6"))       # raw recent turns to include
+# Per-conversation memory controls
+MEMORY_LAST_TURNS = int(os.getenv("MEMORY_LAST_TURNS", "6"))
 MEMORY_SUMMARIZE = os.getenv("MEMORY_SUMMARIZE", "true").lower() == "true"
 MEMORY_SUMMARY_THRESHOLD = int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "8"))
+
+ADMIN_DASH_TOKEN = os.getenv("ADMIN_DASH_TOKEN", "").strip()
+
+class AdminVerifyRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/admin/verify")
+async def admin_verify_route(body: AdminVerifyRequest):
+    """
+    Simple admin code verification for the dashboard.
+    Compares the posted token with ADMIN_DASH_TOKEN from env.
+    """
+    if not ADMIN_DASH_TOKEN:
+        raise HTTPException(500, "Admin token is not configured on the server")
+
+    is_valid = body.token.strip() == ADMIN_DASH_TOKEN
+    return {"valid": is_valid}
+
+
+ # see below
 SYSTEM_PROMPT="""
-# ZUZU - Wright State University International Student Onboarding Assistant
+You are ZUZU, an AI onboarding assistant for international students at Wright State University.
 
-You are ZUZU, a friendly and knowledgeable chatbot designed to help international students navigate their onboarding process at Wright State University. Your mission is to make the transition to Wright State smooth, welcoming, and stress-free.
+Tone and style:
+- Warm, friendly, and practical.
+- Speak in clear, simple English.
+- Keep answers concise but complete.
+- Always assume the student may be stressed, confused, or far from home.
 
-## CRITICAL: Knowledge Base Restriction
-**YOU MUST ONLY answer questions using information from your provided knowledge base. DO NOT use external knowledge, make assumptions, or provide information that isn't explicitly in your knowledge base.**
+Conversation behavior:
+- Whenever a student asks a broad question, first ask 1–2 short clarifying questions before giving a long answer.
+- Explicitly confirm your understanding back to the student in one line before you give detailed steps.
+- Always structure longer answers with short headings or bullet points so they are easy to skim on a phone.
 
-- If a question cannot be answered with your knowledge base, politely say:
-  "I don't have that specific information in my current resources. I recommend contacting [relevant office] directly for accurate information about this. Would you like their contact details?"
-  
-- If the question is partially covered, answer only what you can confirm from your knowledge base and acknowledge the gaps.
+Housing-specific behavior:
+- If the conversation is about housing (or you detect housing-related keywords), do NOT immediately list options.
+- Instead, first ask a few gentle questions such as:
+  - “Do you like to cook regularly or mostly eat outside?”
+  - “About how much can you comfortably spend per month on housing (a rough range is fine)?”
+  - “Would you rather have roommates and a social environment, or more privacy and quiet?”
+  - “Would you prefer to live on campus or off campus if both are possible?”
+- After the student answers, summarize what you learned in 1–2 sentences, then recommend housing options that match their preferences.
 
-- NEVER guess, infer, or provide general information that isn't explicitly in your knowledge base sources.
 
-## Core Identity & Tone
-- **Personality**: Warm, encouraging, and culturally sensitive. You understand that starting university in a new country can be overwhelming.
-- **Communication Style**: Conversational yet professional. Use clear, jargon-free language. When technical terms are necessary, explain them simply.
-- **Approach**: Patient and supportive. Never assume prior knowledge of U.S. university systems or cultural norms.
+INTERACTIVE CLARIFYING QUESTIONS:
 
-## Interaction Guidelines
+- Before giving housing options, ask 1–3 short questions to personalize suggestions, for example:
+  - “Do you prefer to cook often or eat out most of the time?”
+  - “Do you like a quieter space, or are you okay with a more social environment?”
+  - “Are you hoping to live with roommates, or would you prefer your own room if possible?”
+- Similarly, for other topics (visa, money, community life), ask 1–2 clarifying questions before giving a long answer, so your guidance feels tailored rather than generic.
 
-### 1. Be Highly Interactive
-- Ask thoughtful follow-up questions to understand each student's specific situation
-- Use questions to guide students through complex processes step-by-step
-- Examples of interactive questions:
-  - "Have you received your I-20 form yet?"
-  - "What's your intended major? This will help me point you to the right academic advisor."
-  - "Are you planning to live on-campus or off-campus?"
-  - "Do you have any specific concerns about arriving in Ohio?"
+STYLE:
 
-### 2. Provide Source Attribution (MANDATORY)
-- **ALWAYS cite sources** for every piece of information you provide
-- The source URLs are provided in your knowledge base embeddings output
-- Format: After each piece of information, include the source URL exactly as provided
-- Example format:
-You'll need to complete your visa application at least 2-3 months before your program start date.
-Source: [source URL from knowledge base]
-- If multiple pieces of information come from different sources, cite each one separately
+- Sound warm, clear, and encouraging — like a helpful older student or advisor.
 
-### 3. Structure Your Responses
-- Break down complex information into digestible steps
-- Use clear headings and formatting when presenting multiple pieces of information
-- Prioritize the most urgent or relevant information first
-- **Only include information that exists in your knowledge base**
+Safety and boundaries:
+- Never ask for or store highly sensitive personal information such as full name, date of birth, full home address, Social Security Number, phone number, credit card numbers, etc.
+- If a student tries to share those details, gently explain that you cannot process them and suggest what to do instead.
+- For work authorization, visa, and immigration questions, give high-level guidance and direct students back to the official international office and government websites.
 
-### 4. Core Topics to Cover (Only if in Knowledge Base)
-Address these topics ONLY when the information is available in your knowledge base:
-- **Pre-Arrival**: Visa processes, I-20 forms, housing, what to pack, airport pickup
-- **Arrival**: Check-in procedures, orientation schedules, campus tours
-- **Essential Setup**: Banking, phone plans, student ID, health insurance, immunization requirements
-- **Academic**: Course registration, academic advising, understanding credit hours, grading system
-- **Campus Life**: Dining options, transportation, student organizations, cultural adjustment
-- **Practical Living**: Weather preparation for Ohio, shopping, local transportation, safety
-- **Legal Requirements**: Maintaining visa status, SSN applications, work authorization (CPT/OPT)
-
-## Response Structure Template
-
-When answering questions, follow this structure:
-
-1. **Acknowledge the question** warmly
-2. **Check your knowledge base** - can you fully answer this from available information?
-3. **Provide the main answer** clearly and concisely (ONLY from knowledge base)
-4. **Include source URLs** for all information provided (exactly as given in embeddings output)
-5. **Ask 1-2 follow-up questions** to either:
- - Clarify their needs further
- - Guide them to the next logical step
- - Check their understanding
-
-## Example Interaction Pattern
-
-**Student**: "How do I get to campus from the airport?"
-
-**ZUZU Response (if information IS in knowledge base)**:
-"Great question! Let me help you plan your arrival to Wright State.
-
-Wright State University offers airport pickup services from Dayton International Airport (DAY) for new international students. You'll need to:
-
-1. Submit a pickup request form at least 72 hours before your arrival
-2. Provide your flight details (date, time, airline, flight number)
-3. Look for a Wright State representative with a university sign at the baggage claim area
-
-Source: https://wright.edu/international/arrival-services
-
-If the university pickup isn't available for your arrival time, alternative options include:
-- Uber/Lyft (approximately $25-35)
-- RTA Bus Route 22 (more economical but requires transfers)
-
-Source: https://wright.edu/international/transportation-guide
-
-**Follow-up questions:**
-- When is your flight arriving? I can help you determine the best option based on the available services.
-- Do you have a place to stay arranged for your first night, or would you like information about temporary housing?"
-
-**ZUZU Response (if information is NOT in knowledge base)**:
-"That's an important question about getting to campus! Unfortunately, I don't have specific transportation information from the airport in my current resources. 
-
-I recommend contacting the International Student Services office directly - they can provide you with the most current transportation options and any pickup services available. 
-
-Is there anything else about your arrival or settling in that I can help you with?"
-
-## Handling Knowledge Gaps
-
-### When Information is Incomplete:
-"I have some information about [topic], but not all the details you're asking about. Here's what I can tell you:
-
-[Provide available information with sources]
-
-For complete details about [specific gap], I recommend reaching out to [relevant office].
-
-Would you like to know more about any related topics I do have information on?"
-
-### When Information is Not Available:
-"I don't have information about that specific topic in my resources right now. The best way to get accurate information would be to contact:
-
-[Provide relevant contact if available in knowledge base]
-
-Is there something else related to your onboarding that I can help with?"
-
-### When Question is Ambiguous:
-"I want to make sure I give you the most relevant information from my resources. Could you clarify:
-- [Specific clarifying question]
-- [Additional context needed]
-
-This will help me find the exact information you need!"
-
-## Special Considerations
-
-### Cultural Sensitivity
-- Be aware that students come from diverse backgrounds with different educational systems
-- Avoid U.S.-centric assumptions
-- Explain cultural norms when relevant (e.g., classroom participation expectations, office hours etiquette) - **BUT ONLY if this information is in your knowledge base**
-
-### Emotional Support
-- Acknowledge that this transition can be stressful
-- Offer encouragement and reassurance
-- Connect students to mental health and counseling resources **when this information exists in your knowledge base**
-
-### Urgency Awareness
-- Identify time-sensitive issues (visa appointments, enrollment deadlines, housing applications) **based on knowledge base information**
-- Prioritize urgent matters in your responses
-- Create a sense of actionable next steps
-
-### Contact Information
-- When you need to refer students elsewhere, provide contact information **ONLY if it's in your knowledge base**
-- If contact information isn't available, acknowledge this: "I recommend reaching out to [office name], though I don't have their current contact details in my resources."
-
-## Conversation Flow Strategy
-
-### Opening Messages
-- Introduce yourself warmly
-- Ask about their current stage (not yet arrived, just arrived, settling in, etc.)
-- Offer a few main categories they might need help with **that you have information about**
-
-### Mid-Conversation
-- Maintain context from previous messages
-- Reference earlier information when building on topics
-- Check in: "Does this make sense so far?" or "What other aspects would you like to know about?"
-- If reaching the limits of your knowledge base, be transparent about it
-
-### Closing
-- Summarize key action items based on information provided
-- Ask if there's anything else they need
-- Remind them you're available anytime: "Feel free to come back with any questions as you go through this process!"
-- If you couldn't fully help, encourage them to reach out to appropriate offices
-
-## Key Reminders
-✓ **ONLY answer from your provided knowledge base - this is non-negotiable**
-✓ Always ask interactive questions to engage students
-✓ Always provide source URLs exactly as given in embeddings output
-✓ Be transparent when information isn't available
-✓ Break complex processes into clear steps
-✓ Be encouraging and supportive
-✓ Prioritize clarity over comprehensiveness
-✓ Never make up information or provide general knowledge not in your knowledge base
-
-## Quality Control Checklist
-Before responding, verify:
-- [ ] Is this information explicitly in my knowledge base?
-- [ ] Have I included the source URL from the embeddings output?
-- [ ] Have I avoided adding external knowledge or assumptions?
-- [ ] Have I asked an engaging follow-up question?
-- [ ] If I can't fully answer, have I been transparent about it?
-
-Remember: Your credibility depends on accuracy. It's better to say "I don't have that information" than to provide incorrect or unverified information. Your goal is to be a trustworthy guide using only verified Wright State University resources!
+Your goal is to:
+- Reduce confusion.
+- Help the student feel supported and less alone.
+- Guide them step by step with practical next actions.
 """
+
+def require_device_id(x_device_id: Optional[str] = Header(None)) -> str:
+    if not x_device_id or not x_device_id.strip():
+        raise HTTPException(400, "Missing X-Device-Id")
+    return x_device_id.strip()
+
+
+def is_admin(x_admin_key: Optional[str] = Header(None)) -> bool:
+    return bool(
+        ADMIN_DASH_TOKEN
+        and x_admin_key
+        and x_admin_key.strip() == ADMIN_DASH_TOKEN
+    )
+
+
 
 @app.on_event("startup")
 def _startup():
-    ensure_schema()
+    try:
+        ensure_schema()
+    except Exception as e:
+        print("⚠️ Failed to ensure schema on startup:", e)
+
+
 
 # ----------------- Chat CRUD -----------------
 
+
 @app.post("/api/chats", response_model=ChatSummary)
-async def create_chat(body: ChatCreate):
+async def create_chat(body: ChatCreate, device_id: str = Depends(require_device_id)):
+    """
+    Create a new conversation bound to this anonymous device_id.
+    No student name or ID is stored here, which helps with FERPA scope.
+    """
     cid = uuid4()
     title = body.title or "New Conversation"
     with pool.connection() as conn:
-        conn.execute("INSERT INTO chats(chat_id,title) VALUES(%s,%s)", (cid, title))
+        conn.execute(
+            "INSERT INTO chats(chat_id, title, device_id) VALUES(%s, %s, %s)",
+            (cid, title, device_id),
+        )
     now = datetime.now(timezone.utc).isoformat()
     return ChatSummary(chat_id=cid, title=title, created_at=now, updated_at=now)
 
-@app.get("/api/chats", response_model=list[ChatSummary])
-async def list_chats(limit: int = 50, offset: int = 0):
+
+@app.get("/api/chats", response_model=List[ChatSummary])
+async def list_chats(
+    limit: int = 50,
+    offset: int = 0,
+    device_id: str = Depends(require_device_id),
+):
     with pool.connection() as conn:
         rows = conn.execute(
-            "SELECT chat_id, title, created_at, updated_at FROM chats "
-            "ORDER BY updated_at DESC LIMIT %s OFFSET %s",
-            (limit, offset)
+            """
+            SELECT c.chat_id, c.title, c.created_at, c.updated_at
+            FROM chats c
+            WHERE c.device_id = %s
+            AND EXISTS (
+                SELECT 1 FROM message_events me
+                WHERE me.chat_id = c.chat_id
+            )
+            ORDER BY c.updated_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (device_id, limit, offset),
         ).fetchall()
+
     return [
-        ChatSummary(chat_id=r[0], title=r[1],
-                    created_at=r[2].isoformat(), updated_at=r[3].isoformat())
+        ChatSummary(
+            chat_id=r[0],
+            title=r[1],
+            created_at=r[2].isoformat(),
+            updated_at=r[3].isoformat(),
+        )
         for r in rows
     ]
 
+
 @app.get("/api/chats/{chat_id}")
-async def get_chat_messages(chat_id: UUID):
+async def get_chat_messages(
+    chat_id: UUID,
+    device_id: str = Depends(require_device_id),
+):
+    # Verify chat belongs to this device before returning messages
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM chats WHERE chat_id=%s AND device_id=%s",
+            (chat_id, device_id),
+        ).fetchone()
+
+        if not row:
+            # Auto-create a chat row if frontend is using a local-only UUID
+            conn.execute(
+                """
+                INSERT INTO chats (chat_id, title, device_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (chat_id) DO NOTHING
+                """,
+                (chat_id, "New Conversation", device_id),
+            )
+
     return JSONResponse(await get_chat(str(chat_id)))
 
+
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat_route(chat_id: UUID):
+async def delete_chat_route(
+    chat_id: UUID,
+    device_id: str = Depends(require_device_id),
+):
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM chats WHERE chat_id=%s AND device_id=%s",
+            (chat_id, device_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Chat not found for this device")
+
     await delete_chat(str(chat_id))
     with pool.connection() as conn:
-        conn.execute("DELETE FROM chats WHERE chat_id=%s", (chat_id,))
+        conn.execute(
+            "DELETE FROM chats WHERE chat_id=%s AND device_id=%s",
+            (chat_id, device_id),
+        )
         conn.execute("DELETE FROM message_events WHERE chat_id=%s", (chat_id,))
     return {"ok": True}
 
+
 # ----------------- Chat with LLM (+ Memory + Sources) -----------------
 
+
+
 @app.post("/api/chat", response_model=ChatReply)
-async def chat_api(body: ChatPost):
+async def chat_api(body: ChatPost, device_id: str = Depends(require_device_id)):
     chat_id = str(body.chat_id)
     user_msg = (body.message or "").strip()
     if not user_msg:
         raise HTTPException(400, "Empty message")
 
-    # Persist user message (Blob + analytics row)
+    # ✅ ensure chat exists + is tied to this device
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM chats WHERE chat_id=%s AND device_id=%s",
+            (chat_id, device_id),
+        ).fetchone()
+
+        if not row:
+            # auto-create chat row if this UUID is new
+            conn.execute(
+                """
+                INSERT INTO chats (chat_id, title, device_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (chat_id) DO NOTHING
+                """,
+                (chat_id, "New Conversation", device_id),
+            )
+
+    # ---------------- PII CHECK ----------------
+    if contains_pii(user_msg):
+        with pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO pii_events(chat_id, device_id, sample_masked) "
+                "VALUES(%s, %s, %s)",
+                (chat_id, device_id, mask_pii(user_msg)[:300]),
+            )
+        return ChatReply(
+            chat_id=UUID(chat_id),
+            reply=(
+                "> ⚠️ **PII detected** — please remove full name, age, SSN, "
+                "passport, phone, card numbers and try again.\n\n"
+                "*Your message was blocked and not stored or sent to the model.*"
+            ),
+            pii_blocked=True,
+            warning="PII detected and blocked",
+        )
+
+    # ---------------- STORE USER MESSAGE ----------------
     await append_message(chat_id, "user", user_msg)
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO message_events(chat_id, role, category) VALUES(%s,'user',%s)",
-            (chat_id, naive_category(user_msg))
+            "INSERT INTO message_events(chat_id, role, category) "
+            "VALUES(%s, 'user', %s)",
+            (chat_id, naive_category(user_msg)),
         )
         conn.execute("UPDATE chats SET updated_at=now() WHERE chat_id=%s", (chat_id,))
 
-    # ---- MEMORY (Blob) ----
-    # Load recent messages and optionally summarize if long
-    recent = await get_last_messages(chat_id, limit=max(MEMORY_LAST_TURNS, MEMORY_SUMMARY_THRESHOLD))
+    # ---------------- MEMORY ----------------
+    recent = await get_last_messages(
+        chat_id, limit=max(MEMORY_LAST_TURNS, MEMORY_SUMMARY_THRESHOLD)
+    )
     summary = ""
     try:
         if MEMORY_SUMMARIZE and len(recent) >= MEMORY_SUMMARY_THRESHOLD:
@@ -291,31 +309,35 @@ async def chat_api(body: ChatPost):
     except Exception:
         summary = ""
 
-    # ---- RAG Sources (from Postgres docs) ----
+    # ---------------- RAG SOURCES ----------------
     hits = []
     context_block = ""
     try:
         if SOURCES_TOPK > 0:
             hits = search_docs(user_msg, top_k=SOURCES_TOPK)
-            context_lines = [f"- {(h.get('title') or h.get('url') or 'Source')}: {h.get('url') or ''}".strip()
-                             for h in hits]
+            context_lines = [
+                f"- {(h.get('title') or h.get('url') or 'Source')}: {h.get('url') or ''}".strip()
+                for h in hits
+            ]
             context_block = "\n".join([ln for ln in context_lines if ln])
     except Exception:
         hits = []
         context_block = ""
 
-    # Build prompt
-    messages: list[dict] = [
+    messages: List[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
     ]
-
     if summary:
-        messages.append({
-            "role": "system",
-            "content": f"Conversation summary so far (for continuity):\n{summary}"
-        })
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Conversation summary so far (do not show to student):\n"
+                    f"{summary}"
+                ),
+            }
+        )
 
-    # include last N raw turns for fidelity (only user/assistant)
     raw_recent = recent[-MEMORY_LAST_TURNS:] if MEMORY_LAST_TURNS > 0 else []
     for m in raw_recent:
         r = m.get("role")
@@ -324,17 +346,22 @@ async def chat_api(body: ChatPost):
             messages.append({"role": r, "content": c})
 
     if context_block:
-        messages.append({
-            "role": "system",
-            "content": f"Relevant sources you can reference (title and URL):\n{context_block}"
-        })
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Relevant sources (title and URL, do not show verbatim):\n"
+                    f"{context_block}"
+                ),
+            }
+        )
 
     messages.append({"role": "user", "content": user_msg})
 
-    # Call LLM
+    # ---------------- CALL LLM ----------------
     reply = await chat_complete(messages)
 
-    # Append Sources list like ChatGPT (guaranteed when hits exist)
+    # Append Sources list (markdown) when hits exist
     if APPEND_SOURCES and hits:
         dedup = []
         seen = set()
@@ -344,42 +371,75 @@ async def chat_api(body: ChatPost):
             key = url or title
             if key and key not in seen:
                 seen.add(key)
-                dedup.append(f"- {title} — {url}" if url else f"- {title}")
+                dedup.append(f"- [{title}]({url})" if url else f"- {title}")
         if dedup:
-            reply = reply.rstrip() + "\n\nSources:\n" + "\n".join(dedup)
+            reply = reply.rstrip() + "\n\n**Sources**\n" + "\n".join(dedup)
 
-    # Persist assistant message and analytics row
+    # Store assistant reply
     await append_message(chat_id, "assistant", reply)
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO message_events(chat_id, role, category) VALUES(%s,'assistant',NULL)",
-            (chat_id,)
+            "INSERT INTO message_events(chat_id, role, category) "
+            "VALUES(%s, 'assistant', NULL)",
+            (chat_id,),
         )
 
     return ChatReply(chat_id=UUID(chat_id), reply=reply)
 
 # ----------------- Analytics & Search -----------------
 
+
+
 @app.get("/api/analytics")
-async def analytics(tf: str = "7d"):
-    # Option A: if get_analytics does NOT accept tf, just call with no args
-    data = await get_analytics()  # <- no argument
+async def analytics(
+    tf: str = "7d",
+    device_id: str = Depends(require_device_id),
+    admin: bool = Depends(is_admin),
+):
+    """
+    Admin: see analytics across all devices.
+    Student: see analytics only for this device.
+    `tf` is currently not used for filtering but kept for future time-windowing.
+    """
+    data = await get_analytics(None if admin else device_id)
+    # Just return exactly what get_analytics() gives
+    return JSONResponse(data)
 
-    # Map backend keys to the frontend interface:
-    # Frontend needs:
-    # { totalQuestions, questionCategories:[{category,count}], dailyQuestions:[{date, questions}] }
-    by_day = data.get("by_day", [])
-    top_categories = data.get("top_categories", [])
-    chats_total = data.get("totals", {}).get("chats", 0)
+# async def analytics(
+#     tf: str = "7d",
+#     device_id: str = Depends(require_device_id),
+#     admin: bool = Depends(is_admin),
+# ):
+#     """
+#     Admin: see analytics across all devices.
+#     Student: see analytics only for this device.
+#     `tf` is currently not used for filtering but kept for future time-windowing.
+#     """
+#     data = await get_analytics(None if admin else device_id)
 
-    shaped = {
-        "totalQuestions": chats_total,
-        "questionCategories": top_categories,
-        "dailyQuestions": [
-            {"date": d.get("date"), "questions": d.get("count", 0)} for d in by_day
-        ],
-    }
-    return JSONResponse(shaped)
+#     by_day = data.get("by_day", [])
+#     top_categories = data.get("top_categories", [])
+#     chats_total = data.get("totals", {}).get("chats", 0)
+#     pii_flags = data.get("totals", {}).get("pii_flags", 0)
+#     consistency_score = data.get("consistencyScore", 100.0)
+#     consistency_by_category = data.get("consistencyByCategory", {})
+
+#     shaped = {
+#         "totalQuestions": chats_total,
+#         "questionCategories": top_categories,
+#         "dailyQuestions": [
+#             {"date": d.get("date"), "questions": d.get("count", 0)} for d in by_day
+#         ],
+#         "piiFlags": pii_flags,
+#         "consistencyScore": consistency_score,
+#         "consistencyByCategory": [
+#             {"category": cat, "score": float(score)}
+#             for cat, score in consistency_by_category.items()
+#         ],
+#     }
+#     return JSONResponse(shaped)
+
+
 @app.post("/api/search", response_model=SearchResponse)
 async def semantic_search(req: SearchRequest):
     hits = search_docs(req.query, req.top_k)

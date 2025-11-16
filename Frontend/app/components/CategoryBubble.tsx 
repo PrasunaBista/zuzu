@@ -1,0 +1,48 @@
+// components/CategoryBubble.tsx
+
+"use client";
+
+import React from "react";
+
+interface CategoryBubbleProps {
+  title?: string;            // optional header text
+  subtitle?: string;         // optional small text (under header)
+  children: React.ReactNode; // category or subcategory buttons
+}
+
+export default function CategoryBubble({
+  title,
+  subtitle,
+  children,
+}: CategoryBubbleProps) {
+  return (
+    <div className="mt-4">
+      {/* Header text inside bot bubble */}
+      {title && (
+        <h3 className="text-[#5C3B1F] text-base font-semibold mb-1">
+          {title}
+        </h3>
+      )}
+
+      {subtitle && (
+        <p className="text-[#A06A32] text-sm mb-3">{subtitle}</p>
+      )}
+
+      {/* FLOOT-style card container */}
+      <div
+        className="
+          w-full
+          bg-white
+          border border-[#F3C58C]
+          rounded-2xl
+          shadow-[0_2px_10px_rgba(0,0,0,0.06)]
+          p-3
+          flex flex-col
+          gap-2
+        "
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
