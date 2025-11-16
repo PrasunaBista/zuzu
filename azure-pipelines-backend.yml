@@ -1,0 +1,52 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # Name of your Function App in Azure
+  functionAppName: "func-zuzu-mvp"
+  backendFolder: "Backend"
+
+stages:
+  - stage: BuildAndDeploy
+    displayName: Build and Deploy Backend
+    jobs:
+      - job: BuildAndDeployJob
+        displayName: Build and Deploy Python Backend to Azure Functions
+        steps:
+          - checkout: self
+
+          - task: UsePythonVersion@0
+            displayName: "Use Python 3.11"
+            inputs:
+              versionSpec: "3.11"
+
+          - script: |
+              cd $(backendFolder)
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt --target ./package
+              cp -r app ./package/app
+              cd package
+              zip -r ../backend.zip .
+            displayName: "Install dependencies and package backend"
+
+          # Publish the zip as a build artifact (optional, but useful)
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish backend artifact"
+            inputs:
+              PathtoPublish: "$(backendFolder)/backend.zip"
+              ArtifactName: "backend"
+              publishLocation: "Container"
+
+          # Deploy to Azure Function App
+          - task: AzureFunctionApp@2
+            displayName: "Deploy to Azure Function App"
+            inputs:
+              azureSubscription: "zuzu-azure-subscription-1-conn"
+              appType: "functionAppLinux"
+              appName: "$(functionAppName)"
+              package: "$(backendFolder)/backend.zip"

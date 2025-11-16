@@ -2,7 +2,7 @@ import os
 from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
 load_dotenv() 
-db_url = os.getenv("DATABASE_URL")
+db_url = os.getenv("DB_CONNECTION_STRING")
 if not db_url:
     db_url = (
         f"host={os.getenv('PGHOST')} "
