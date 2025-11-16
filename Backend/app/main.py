@@ -28,6 +28,8 @@ from .utils import naive_category, contains_pii, mask_pii
 
 app = FastAPI(title="ZUZU Backend")
 
+
+
 origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +38,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "ZUZU backend is running"}
 
 
 # --------- Env toggles ---------
@@ -48,6 +53,7 @@ MEMORY_SUMMARIZE = os.getenv("MEMORY_SUMMARIZE", "true").lower() == "true"
 MEMORY_SUMMARY_THRESHOLD = int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "8"))
 
 ADMIN_DASH_TOKEN = os.getenv("ADMIN_DASH_TOKEN", "").strip()
+
 
 class AdminVerifyRequest(BaseModel):
     token: str
