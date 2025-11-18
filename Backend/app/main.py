@@ -111,9 +111,9 @@ def require_device_id(
 # ------------------------------------------------------
 # Startup: ensure DB schema
 # ------------------------------------------------------
-@app.on_event("startup")
-async def on_startup():
-    ensure_schema()
+# @app.on_event("startup")
+# async def on_startup():
+#     ensure_schema()
 
 
 # ------------------------------------------------------
