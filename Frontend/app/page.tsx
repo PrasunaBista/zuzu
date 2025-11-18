@@ -258,23 +258,48 @@ const THEME = {
 //                       DEVICE ID
 // ============================================================
 
+// const DEVICE_KEY = "zuzu_device_id";
+
+// function getDeviceId(): string {
+//   if (typeof window === "undefined") return "server";
+
+//   let id: string | null = window.localStorage.getItem(DEVICE_KEY);
+
+//   if (!id) {
+//     const randomId =
+//       (crypto as any)?.randomUUID?.() ??
+//       `${Date.now().toString(36)}-${Math.random()
+//         .toString(36)
+//         .slice(2)}`;
+
+//     window.localStorage.setItem(DEVICE_KEY, randomId); // ✅ randomId is string
+//     id = randomId;
+//   }
+
+//   return id; // ✅ TS now knows this is string here (because we always set it)
+// }
 const DEVICE_KEY = "zuzu_device_id";
 
 function getDeviceId(): string {
-  if (typeof window === "undefined") return "server";
-
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    const randomId =
-      (crypto as any)?.randomUUID?.() ??
-      `${Date.now().toString(36)}-${Math.random()
-        .toString(36)
-        .slice(2)}`;
-    id = randomId;
-    localStorage.setItem(DEVICE_KEY, id);
+  if (typeof window === "undefined") {
+    return "server";
   }
-  return id;
+
+  // Try to read existing id
+  const existing = window.localStorage.getItem(DEVICE_KEY);
+  if (existing) {
+    return existing; // ✅ definitely a string
+  }
+
+  // Create and store a new id
+  const randomId =
+    (crypto as any)?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+  window.localStorage.setItem(DEVICE_KEY, randomId);
+  return randomId; // ✅ definitely a string
 }
+
 
 const DEVICE_ID =
   typeof window !== "undefined" ? getDeviceId() : "server";
