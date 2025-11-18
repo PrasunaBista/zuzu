@@ -37,6 +37,11 @@ from .utils import naive_category, contains_pii, mask_pii
 
 app = FastAPI(title="ZUZU Backend")
 
+@app.get("/debug/ping")
+def ping():
+    return {"status": "alive"}
+
+
 # ------------------------------------------------------
 # CORS
 # ------------------------------------------------------
