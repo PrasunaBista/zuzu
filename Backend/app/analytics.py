@@ -148,111 +148,123 @@ def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
 # 🔹 DEEP CONSISTENCY CALCULATOR USING EMBEDDINGS
 # ===================================================================
 
+# async def _compute_consistency(chat_ids: List[str]) -> Tuple[float, Dict[str, float]]:
+#     """
+#     For each chat:
+#     - pair user question + assistant answer
+#     - group questions by normalized text
+#     - for each question asked 2+ times, compute embedding similarity
+#     - global consistency = avg pairwise similarity (0–100)
+#     - per-category consistency = similarity grouped by naive category
+#     """
+
+#     # ⬇️  Move imports here so a failure does NOT kill app startup
+#     try:
+#         from .storage import get_chat
+#         from .llm import embed_text_async
+#     except Exception as e:
+#         logger.exception("Failed to import embedding / storage helpers: %s", e)
+#         # If embeddings are unavailable, just return "perfect" consistency
+#         return 100.0, {cat: 100.0 for cat in ZUZU_CATEGORIES}
+
+#     qa_groups: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+
+#     # ---- BUILD Q/A GROUPS ----
+#     try:
+#         for chat_id in chat_ids:
+#             messages = await get_chat(chat_id)
+#             if not messages:
+#                 continue
+
+#             last_user: Optional[str] = None
+
+#             for m in messages:
+#                 role = m.get("role")
+#                 content = (m.get("content") or "").strip()
+#                 if not content:
+#                     continue
+
+#                 if role == "user":
+#                     last_user = content
+#                 elif role == "assistant" and last_user:
+#                     q = last_user
+#                     a = content
+#                     key = _normalize_question(q)
+#                     cat = naive_category(q)
+#                     qa_groups[key].append(
+#                         {
+#                             "question": q,
+#                             "answer": a,
+#                             "category": cat,
+#                         }
+#                     )
+#                     last_user = None
+
+#         # ---- COMPUTE SIMILARITIES ----
+#         global_sims: List[float] = []
+#         per_cat_sims: Dict[str, List[float]] = defaultdict(list)
+
+#         for key, qa_list in qa_groups.items():
+#             if len(qa_list) < 2:
+#                 continue  # only 1 answer, nothing to compare
+
+#             # Embed all answers for this normalized question
+#             answers = [item["answer"] for item in qa_list]
+#             embeddings: List[List[float]] = []
+#             for ans in answers:
+#                 emb = await embed_text_async(ans)
+#                 embeddings.append(emb)
+
+#             # Pairwise cosine similarities
+#             n = len(embeddings)
+#             for i in range(n):
+#                 for j in range(i + 1, n):
+#                     sim = _cosine(embeddings[i], embeddings[j])
+#                     if sim is None:
+#                         continue
+#                     global_sims.append(sim)
+
+#                     cat_i = qa_list[i]["category"] or "Other Inquiries"
+#                     per_cat_sims[cat_i].append(sim)
+
+#     except Exception as e:
+#         logger.exception("Error computing consistency: %s", e)
+#         # Fallback: treat as fully consistent to avoid breaking dashboard
+#         return 100.0, {cat: 100.0 for cat in ZUZU_CATEGORIES}
+
+#     # ---- REDUCE TO SCORES 0–100 ----
+#     if global_sims:
+#         global_score = round(100.0 * (sum(global_sims) / len(global_sims)), 1)
+#     else:
+#         # If we have no repeated questions, treat as fully consistent
+#         global_score = 100.0
+
+#     per_cat_scores: Dict[str, float] = {}
+#     for cat in ZUZU_CATEGORIES:
+#         sims = per_cat_sims.get(cat, [])
+#         if sims:
+#             per_cat_scores[cat] = round(100.0 * (sum(sims) / len(sims)), 1)
+#         else:
+#             per_cat_scores[cat] = 100.0
+
+#     # Also include any other categories that showed up
+#     for cat, sims in per_cat_sims.items():
+#         if cat not in per_cat_scores:
+#             per_cat_scores[cat] = round(100.0 * (sum(sims) / len(sims)), 1)
+
+#     return global_score, per_cat_scores
+
+# app/analytics.py
+
 async def _compute_consistency(chat_ids: List[str]) -> Tuple[float, Dict[str, float]]:
     """
-    For each chat:
-    - pair user question + assistant answer
-    - group questions by normalized text
-    - for each question asked 2+ times, compute embedding similarity
-    - global consistency = avg pairwise similarity (0–100)
-    - per-category consistency = similarity grouped by naive category
+    TEMP: Safe, cheap consistency calculator that never calls OpenAI
+    and never touches the DB, so analytics can’t crash the app.
     """
-
-    # ⬇️  Move imports here so a failure does NOT kill app startup
-    try:
-        from .storage import get_chat
-        from .llm import embed_text_async
-    except Exception as e:
-        logger.exception("Failed to import embedding / storage helpers: %s", e)
-        # If embeddings are unavailable, just return "perfect" consistency
-        return 100.0, {cat: 100.0 for cat in ZUZU_CATEGORIES}
-
-    qa_groups: Dict[str, List[Dict[str, str]]] = defaultdict(list)
-
-    # ---- BUILD Q/A GROUPS ----
-    try:
-        for chat_id in chat_ids:
-            messages = await get_chat(chat_id)
-            if not messages:
-                continue
-
-            last_user: Optional[str] = None
-
-            for m in messages:
-                role = m.get("role")
-                content = (m.get("content") or "").strip()
-                if not content:
-                    continue
-
-                if role == "user":
-                    last_user = content
-                elif role == "assistant" and last_user:
-                    q = last_user
-                    a = content
-                    key = _normalize_question(q)
-                    cat = naive_category(q)
-                    qa_groups[key].append(
-                        {
-                            "question": q,
-                            "answer": a,
-                            "category": cat,
-                        }
-                    )
-                    last_user = None
-
-        # ---- COMPUTE SIMILARITIES ----
-        global_sims: List[float] = []
-        per_cat_sims: Dict[str, List[float]] = defaultdict(list)
-
-        for key, qa_list in qa_groups.items():
-            if len(qa_list) < 2:
-                continue  # only 1 answer, nothing to compare
-
-            # Embed all answers for this normalized question
-            answers = [item["answer"] for item in qa_list]
-            embeddings: List[List[float]] = []
-            for ans in answers:
-                emb = await embed_text_async(ans)
-                embeddings.append(emb)
-
-            # Pairwise cosine similarities
-            n = len(embeddings)
-            for i in range(n):
-                for j in range(i + 1, n):
-                    sim = _cosine(embeddings[i], embeddings[j])
-                    if sim is None:
-                        continue
-                    global_sims.append(sim)
-
-                    cat_i = qa_list[i]["category"] or "Other Inquiries"
-                    per_cat_sims[cat_i].append(sim)
-
-    except Exception as e:
-        logger.exception("Error computing consistency: %s", e)
-        # Fallback: treat as fully consistent to avoid breaking dashboard
-        return 100.0, {cat: 100.0 for cat in ZUZU_CATEGORIES}
-
-    # ---- REDUCE TO SCORES 0–100 ----
-    if global_sims:
-        global_score = round(100.0 * (sum(global_sims) / len(global_sims)), 1)
-    else:
-        # If we have no repeated questions, treat as fully consistent
-        global_score = 100.0
-
-    per_cat_scores: Dict[str, float] = {}
-    for cat in ZUZU_CATEGORIES:
-        sims = per_cat_sims.get(cat, [])
-        if sims:
-            per_cat_scores[cat] = round(100.0 * (sum(sims) / len(sims)), 1)
-        else:
-            per_cat_scores[cat] = 100.0
-
-    # Also include any other categories that showed up
-    for cat, sims in per_cat_sims.items():
-        if cat not in per_cat_scores:
-            per_cat_scores[cat] = round(100.0 * (sum(sims) / len(sims)), 1)
-
+    global_score = 100.0
+    per_cat_scores = {cat: 100.0 for cat in ZUZU_CATEGORIES}
     return global_score, per_cat_scores
+
 
 
 def _normalize_question(q: str) -> str:
