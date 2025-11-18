@@ -690,7 +690,7 @@ function ZuzuApp() {
         id: uid(),
         role: "bot",
         content:
-          "That’s a great question, and I definitely want to help you with it. 💛\n\n" +
+          "I didn’t quite catch that, and I definitely want to help you with it. 💛\n\n" +
           "Before I give you a detailed answer, could you please tell me:\n\n" +
           "• Are you a **graduate** or **undergraduate** student?\n" +
           "• Are you **international** or **domestic/national**?\n\n" +
