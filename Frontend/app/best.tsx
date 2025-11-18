@@ -344,21 +344,14 @@ function buildCategoryButtonMessage(parsed: {
 }
 
 /**
- * Strip ANY trailing "Sources" blocks from the LLM text
- * so we only show the clean Sources list at the bottom.
+ * Strip any trailing "Sources:" section from the LLM text
+ * so we only show our clean Sources list at the bottom.
  */
 function stripSourcesSection(text: string): string {
   if (!text) return text;
-  const lines = text.split("\n");
-  const idx = lines.findIndex((line) => {
-    const t = line.trim().toLowerCase();
-    return (
-      t.startsWith("sources") || // "Sources:", "Sources (vector DB):"
-      t.startsWith("**sources**")
-    );
-  });
+  const idx = text.indexOf("\nSources:");
   if (idx === -1) return text;
-  return lines.slice(0, idx).join("\n").trimEnd();
+  return text.slice(0, idx).trimEnd();
 }
 
 // ============================================================
@@ -429,9 +422,6 @@ function ZuzuApp() {
     null
   );
 
-  // 🔹 NEW: track the current topic so follow-up questions keep context
-  const [currentContext, setCurrentContext] = useState<string | null>(null);
-
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
 
@@ -487,7 +477,6 @@ function ZuzuApp() {
         setIntroState("waiting_first");
         setSelectedCategory(null);
         setSelectedSubcategory(null);
-        setCurrentContext(null);
         return;
       }
     }
@@ -514,7 +503,6 @@ function ZuzuApp() {
     setIntroState("waiting_first");
     setSelectedCategory(null);
     setSelectedSubcategory(null);
-    setCurrentContext(null);
   }
 
   function deleteConvo(id: string) {
@@ -536,24 +524,6 @@ function ZuzuApp() {
     );
   }
 
-  // 🔹 NEW: track category selections for analytics
-  function trackCategorySelection(label: string) {
-    if (!activeConvo) return;
-    fetch(`${API_BASE}/track-category`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Device-Id": DEVICE_ID,
-      },
-      body: JSON.stringify({
-        chat_id: activeConvo.id,
-        category: label,
-      }),
-    }).catch(() => {
-      // ignore tracking errors on frontend
-    });
-  }
-
   async function sendMessageWithText(
     text: string,
     options?: { skipUserMessage?: boolean }
@@ -566,8 +536,6 @@ function ZuzuApp() {
       const hasUserMessages =
         activeConvo.messages.filter((m) => m.role === "user").length > 0;
       if (!hasUserMessages) {
-        // First free-text after intro: if we still have "New Conversation"
-        // and no category yet, keep current behavior (title = text).
         updateConversationTitle(activeConvo.id, text);
       }
 
@@ -590,17 +558,10 @@ function ZuzuApp() {
     setFlowStep("chat");
 
     setIsTyping(true);
-
-    // 🔹 NEW: add soft context to help LLM remember what topic we're on
-    const effectiveText =
-      currentContext && currentContext.trim().length > 0
-        ? `${text}\n\n(Context: this question is about "${currentContext}".)`
-        : text;
-
     let reply = "";
     let sources: Message["sources"] = [];
     try {
-      const res = await sendToBackend(activeConvo.id, effectiveText);
+      const res = await sendToBackend(activeConvo.id, text);
       reply = res.reply;
       sources = res.sources;
     } catch {
@@ -646,17 +607,6 @@ function ZuzuApp() {
 
     const parsed = parseStudentType(text);
 
-    // 🔹 NEW: if we can detect profile, use it as a temporary title
-    // (e.g., "international graduate") so chats aren't stuck as "New Conversation"
-    if (parsed.valid) {
-      const levelLabel = parsed.level ?? "";
-      const originLabel = parsed.origin ?? "";
-      const prettyTitle = `${originLabel} ${levelLabel}`.trim();
-      if (prettyTitle) {
-        updateConversationTitle(activeConvo.id, prettyTitle);
-      }
-    }
-
     if (!parsed.valid && introState === "waiting_first") {
       const retryBot: Message = {
         id: uid(),
@@ -700,7 +650,9 @@ function ZuzuApp() {
       buttons,
     };
 
-    // We still let categories override the profile title later.
+    // IMPORTANT: do NOT rename the conversation here.
+    // We keep "New Conversation" until a category / subcategory
+    // is chosen, so titles come from those choices.
     setConvos((prev) =>
       prev.map((c) =>
         c.id === activeConvo.id
@@ -750,9 +702,6 @@ function ZuzuApp() {
       selectionText = `${btn.category} → ${btn.subcategory} → ${btn.label}`;
     }
 
-    // 🔹 NEW: remember this as the current context for follow-up questions
-    setCurrentContext(selectionText);
-
     const userMsg: Message = {
       id: uid(),
       role: "user",
@@ -764,13 +713,7 @@ function ZuzuApp() {
       activeConvo.messages.filter((m) => m.role === "user").length > 0;
 
     const maybeUpdateTitle = (text: string) => {
-      const title = activeConvo.title;
-      const looksLikeProfile =
-        /international|domestic/i.test(title) &&
-        /graduate|undergraduate|grad|undergrad/i.test(title);
-
-      // 🔹 Allow overriding "New Conversation" **and** simple profile titles
-      if (!hasUserMessages || title === "New Conversation" || looksLikeProfile) {
+      if (!hasUserMessages || activeConvo.title === "New Conversation") {
         updateConversationTitle(activeConvo.id, text);
       }
     };
@@ -798,9 +741,6 @@ function ZuzuApp() {
           )
         );
         setSelectedCategory(btn.label);
-
-        // 🔹 track category click
-        trackCategorySelection(btn.label);
         return;
       }
 
@@ -832,11 +772,9 @@ function ZuzuApp() {
         )
       );
       setSelectedCategory(btn.label);
-
-      // 🔹 track category click
-      trackCategorySelection(btn.label);
       return;
     }
+
 
     if (btn.kind === "subcategory") {
       if (
@@ -873,9 +811,6 @@ function ZuzuApp() {
         );
         setSelectedCategory(btn.category ?? null);
         setSelectedSubcategory(btn.label);
-
-        // 🔹 track subcategory as part of category usage
-        trackCategorySelection(`${btn.category} – ${btn.label}`);
         return;
       }
 
@@ -889,9 +824,6 @@ function ZuzuApp() {
             : c
         )
       );
-
-      // 🔹 track subcategory
-      trackCategorySelection(`${btn.category} – ${btn.label}`);
 
       void sendMessageWithText(ctx, { skipUserMessage: true });
       return;
@@ -909,11 +841,6 @@ function ZuzuApp() {
             ? { ...c, messages: [...c.messages, userMsg] }
             : c
         )
-      );
-
-      // 🔹 track third-level selection too (fine-grained)
-      trackCategorySelection(
-        `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
       );
 
       void sendMessageWithText(ctx, { skipUserMessage: true });
@@ -1249,7 +1176,7 @@ function ZuzuApp() {
                 className={`
                   w-full resize-none rounded-full border ${THEME.sidebarBorder} 
                   bg-white px-6 py-3 text-sm ${THEME.textMain}
-                  placeholder[#C38A4A] focus:outline-none focus:ring-2
+                  placeholder-[#C38A4A] focus:outline-none focus:ring-2
                   focus:ring-[#FF9E1E]
                 `}
               />

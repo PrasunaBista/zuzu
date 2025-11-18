@@ -20,7 +20,7 @@ import {
   User,
   ArrowLeft,
   Lock,
-  Sparkles,
+  Sparkles, // (unused now but safe to keep)
   PieChart as PieChartIcon,
 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -136,6 +136,7 @@ export const ZUZU_SUBCATEGORIES: Record<string, string[]> = {
   "Other Inquiries": ["Anything else"],
 };
 
+// Detailed third-level items for Housing only
 const HOUSING_THIRD_LEVEL: Record<string, string[]> = {
   "Apply / Eligibility": [
     "How to apply (WINGS → Student → Housing)",
@@ -219,7 +220,9 @@ interface Message {
   role: Role;
   content: string;
   ts: number;
+  // Optional: populated only for bot messages that used vector DB
   sources?: { id: number; title: string; url: string; score: number }[];
+  // Optional: interactive buttons rendered under this bot message
   buttons?: ZuzuButton[];
 }
 
@@ -265,12 +268,7 @@ function getDeviceId(): string {
 
   let id = localStorage.getItem(DEVICE_KEY);
   if (!id) {
-    const randomId =
-      (crypto as any)?.randomUUID?.() ??
-      `${Date.now().toString(36)}-${Math.random()
-        .toString(36)
-        .slice(2)}`;
-    id = randomId;
+    id = crypto.randomUUID();
     localStorage.setItem(DEVICE_KEY, id);
   }
   return id;
@@ -306,10 +304,14 @@ function timeAgo(ts: number): string {
 function parseStudentType(answer: string) {
   const t = answer.toLowerCase();
 
+  // grad / graduate
   const grad = /\bgrad(uate)?\b/.test(t);
   const undergrad = /\bundergrad(uate)?\b/.test(t);
 
+  // international / intl / int'l
   const international = /\b(international|intl|int'l)\b/.test(t);
+
+  // domestic / national / dom
   const domestic = /\b(domestic|national|dom)\b/.test(t);
 
   const level = grad ? "graduate" : undergrad ? "undergraduate" : null;
@@ -341,24 +343,6 @@ function buildCategoryButtonMessage(parsed: {
   }));
 
   return { content, buttons };
-}
-
-/**
- * Strip ANY trailing "Sources" blocks from the LLM text
- * so we only show the clean Sources list at the bottom.
- */
-function stripSourcesSection(text: string): string {
-  if (!text) return text;
-  const lines = text.split("\n");
-  const idx = lines.findIndex((line) => {
-    const t = line.trim().toLowerCase();
-    return (
-      t.startsWith("sources") || // "Sources:", "Sources (vector DB):"
-      t.startsWith("**sources**")
-    );
-  });
-  if (idx === -1) return text;
-  return lines.slice(0, idx).join("\n").trimEnd();
 }
 
 // ============================================================
@@ -407,7 +391,11 @@ async function sendToBackend(
 
 function ZuzuApp() {
   const [view, setView] = useState<"chat" | "admin">("chat");
+
+  // Sidebar
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Conversations
   const [convos, setConvos] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -416,33 +404,43 @@ function ZuzuApp() {
     [convos, activeId]
   );
 
+  // Flow controller (we mostly care about intro vs chat now)
   const [flowStep, setFlowStep] = useState<
     "intro" | "categories" | "subcategories" | "thirdlevel" | "chat"
   >("intro");
 
+  // Intro state: first answer, possible retry, then done
   const [introState, setIntroState] = useState<
     "waiting_first" | "waiting_retry" | "done"
   >("waiting_first");
 
+  // These are still useful for logic / titles
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(
     null
   );
 
-  // 🔹 NEW: track the current topic so follow-up questions keep context
-  const [currentContext, setCurrentContext] = useState<string | null>(null);
-
+  // Input
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const bootRef = useRef(false);
 
+  // admin access
   const [adminKey, setAdminKey] = useState<string | null>(null);
+
+  // ============================================================
+  //                   AUTO SCROLL ON MESSAGE
+  // ============================================================
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConvo?.messages, isTyping]);
+
+  // ============================================================
+  //                     LOAD LOCAL STORAGE
+  // ============================================================
 
   useEffect(() => {
     if (bootRef.current) return;
@@ -464,21 +462,32 @@ function ZuzuApp() {
       // ignore
     }
 
+    // otherwise: create new conversation
     createNewConversation(true);
   }, []);
+
+  // ============================================================
+  //                     SAVE LOCAL STORAGE
+  // ============================================================
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem("zuzu_convos", JSON.stringify(convos));
   }, [convos]);
 
+  // ==================================================================
+  //            NEW CONVERSATION — ONE EMPTY RULE
+  // ==================================================================
+
   function isConversationEmpty(c: Conversation) {
+    // empty = ONLY initial bot message exists
     if (!c.messages) return true;
     if (c.messages.length === 1 && c.messages[0].role === "bot") return true;
     return false;
   }
 
   function createNewConversation(isInitial = false) {
+    // RULE: if an empty conversation already exists, switch to it
     if (!isInitial) {
       const empty = convos.find(isConversationEmpty);
       if (empty) {
@@ -487,12 +496,11 @@ function ZuzuApp() {
         setIntroState("waiting_first");
         setSelectedCategory(null);
         setSelectedSubcategory(null);
-        setCurrentContext(null);
         return;
       }
     }
 
-    const id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2);
+    const id = crypto.randomUUID();
 
     const firstMsg: Message = {
       id: uid(),
@@ -514,16 +522,24 @@ function ZuzuApp() {
     setIntroState("waiting_first");
     setSelectedCategory(null);
     setSelectedSubcategory(null);
-    setCurrentContext(null);
   }
+
+  // ============================================================
+  //                     DELETE CONVERSATION
+  // ============================================================
 
   function deleteConvo(id: string) {
     setConvos((x) => x.filter((c) => c.id !== id));
+
     if (activeId === id) {
       const next = convos.find((c) => c.id !== id);
       setActiveId(next?.id ?? null);
     }
   }
+
+  // ============================================================
+  //                     UPDATE AUTO TITLE
+  // ============================================================
 
   function updateConversationTitle(convoId: string, content: string) {
     const words = content.split(/\s+/);
@@ -536,23 +552,9 @@ function ZuzuApp() {
     );
   }
 
-  // 🔹 NEW: track category selections for analytics
-  function trackCategorySelection(label: string) {
-    if (!activeConvo) return;
-    fetch(`${API_BASE}/track-category`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Device-Id": DEVICE_ID,
-      },
-      body: JSON.stringify({
-        chat_id: activeConvo.id,
-        category: label,
-      }),
-    }).catch(() => {
-      // ignore tracking errors on frontend
-    });
-  }
+  // ============================================================
+  //                 SEND MESSAGE (USER → BACKEND)
+  // ============================================================
 
   async function sendMessageWithText(
     text: string,
@@ -562,12 +564,11 @@ function ZuzuApp() {
 
     const skipUserMessage = options?.skipUserMessage ?? false;
 
+    // First user message → generate title (only when we're adding a user bubble)
     if (!skipUserMessage) {
       const hasUserMessages =
         activeConvo.messages.filter((m) => m.role === "user").length > 0;
       if (!hasUserMessages) {
-        // First free-text after intro: if we still have "New Conversation"
-        // and no category yet, keep current behavior (title = text).
         updateConversationTitle(activeConvo.id, text);
       }
 
@@ -589,21 +590,15 @@ function ZuzuApp() {
 
     setFlowStep("chat");
 
+    // Send to backend
     setIsTyping(true);
-
-    // 🔹 NEW: add soft context to help LLM remember what topic we're on
-    const effectiveText =
-      currentContext && currentContext.trim().length > 0
-        ? `${text}\n\n(Context: this question is about "${currentContext}".)`
-        : text;
-
     let reply = "";
     let sources: Message["sources"] = [];
     try {
-      const res = await sendToBackend(activeConvo.id, effectiveText);
+      const res = await sendToBackend(activeConvo.id, text);
       reply = res.reply;
       sources = res.sources;
-    } catch {
+    } catch (e: any) {
       reply = "Sorry — backend error.";
       sources = [];
     }
@@ -626,9 +621,26 @@ function ZuzuApp() {
     );
   }
 
+  function sendMessage() {
+    const t = input.trim();
+    if (!t) return;
+
+    // While intro is not done, every message goes through intro handler
+    if (introState !== "done") {
+      setInput("");
+      void handleIntroAnswer(t);
+      return;
+    }
+
+    // Normal flow after intro finished
+    setInput("");
+    void sendMessageWithText(t);
+  }
+
   async function handleIntroAnswer(text: string) {
     if (!activeConvo) return;
 
+    // 1) Add user message locally
     const userMsg: Message = {
       id: uid(),
       role: "user",
@@ -646,17 +658,7 @@ function ZuzuApp() {
 
     const parsed = parseStudentType(text);
 
-    // 🔹 NEW: if we can detect profile, use it as a temporary title
-    // (e.g., "international graduate") so chats aren't stuck as "New Conversation"
-    if (parsed.valid) {
-      const levelLabel = parsed.level ?? "";
-      const originLabel = parsed.origin ?? "";
-      const prettyTitle = `${originLabel} ${levelLabel}`.trim();
-      if (prettyTitle) {
-        updateConversationTitle(activeConvo.id, prettyTitle);
-      }
-    }
-
+    // 2) FIRST ANSWER INVALID → ONE RETRY (polite, acknowledges question)
     if (!parsed.valid && introState === "waiting_first") {
       const retryBot: Message = {
         id: uid(),
@@ -682,6 +684,7 @@ function ZuzuApp() {
       return;
     }
 
+    // 3) AFTER SECOND ANSWER (OR FIRST VALID) → MOVE ON, SHOW CATEGORY BUTTONS
     const { level, origin } = parsed;
     const summaryForLLM = parsed.valid
       ? `Student profile: ${level} student, ${origin}.`
@@ -692,6 +695,12 @@ function ZuzuApp() {
 
     const { content, buttons } = buildCategoryButtonMessage(parsed);
 
+    const hasRealTitle =
+      activeConvo.title && activeConvo.title !== "New Conversation";
+    const titleText = parsed.valid
+      ? `${origin ?? ""} ${level ?? ""}`.trim()
+      : text;
+
     const botMsg: Message = {
       id: uid(),
       role: "bot",
@@ -700,37 +709,24 @@ function ZuzuApp() {
       buttons,
     };
 
-    // We still let categories override the profile title later.
     setConvos((prev) =>
       prev.map((c) =>
         c.id === activeConvo.id
           ? {
               ...c,
+              title: hasRealTitle ? c.title : titleText || "Conversation",
               messages: [...c.messages, botMsg],
             }
           : c
       )
     );
 
+    // Silently send summary to backend so the LLM has context
     try {
       await sendToBackend(activeConvo.id, summaryForLLM);
     } catch (err) {
       console.error("Failed to send profile summary to backend", err);
     }
-  }
-
-  function sendMessage() {
-    const t = input.trim();
-    if (!t) return;
-
-    if (introState !== "done") {
-      setInput("");
-      void handleIntroAnswer(t);
-      return;
-    }
-
-    setInput("");
-    void sendMessageWithText(t);
   }
 
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -740,18 +736,20 @@ function ZuzuApp() {
     }
   }
 
+  // ============================================================
+  //                    BUTTON CLICK HANDLER
+  // ============================================================
+
   function handleButtonClick(btn: ZuzuButton) {
     if (!activeConvo) return;
 
+    // Build what shows up in the user bubble
     let selectionText = btn.label;
     if (btn.kind === "subcategory" && btn.category) {
       selectionText = `${btn.category} → ${btn.label}`;
     } else if (btn.kind === "thirdlevel" && btn.category && btn.subcategory) {
       selectionText = `${btn.category} → ${btn.subcategory} → ${btn.label}`;
     }
-
-    // 🔹 NEW: remember this as the current context for follow-up questions
-    setCurrentContext(selectionText);
 
     const userMsg: Message = {
       id: uid(),
@@ -764,47 +762,13 @@ function ZuzuApp() {
       activeConvo.messages.filter((m) => m.role === "user").length > 0;
 
     const maybeUpdateTitle = (text: string) => {
-      const title = activeConvo.title;
-      const looksLikeProfile =
-        /international|domestic/i.test(title) &&
-        /graduate|undergraduate|grad|undergrad/i.test(title);
-
-      // 🔹 Allow overriding "New Conversation" **and** simple profile titles
-      if (!hasUserMessages || title === "New Conversation" || looksLikeProfile) {
+      if (!hasUserMessages || activeConvo.title === "New Conversation") {
         updateConversationTitle(activeConvo.id, text);
       }
     };
 
+    // ----------------- CATEGORY CLICK -----------------
     if (btn.kind === "category") {
-      // Special behavior for "Other Inquiries"
-      if (btn.label === "Other Inquiries") {
-        const botMsg: Message = {
-          id: uid(),
-          role: "bot",
-          ts: Date.now(),
-          content:
-            "Great! 😊\n\n" +
-            "“Other Inquiries” just means anything that doesn’t quite fit the other buttons.\n\n" +
-            "Please go ahead and **type your question in your own words**, and I’ll do my best to help.",
-        };
-
-        maybeUpdateTitle(btn.label);
-
-        setConvos((prev) =>
-          prev.map((c) =>
-            c.id === activeConvo.id
-              ? { ...c, messages: [...c.messages, userMsg, botMsg] }
-              : c
-          )
-        );
-        setSelectedCategory(btn.label);
-
-        // 🔹 track category click
-        trackCategorySelection(btn.label);
-        return;
-      }
-
-      // Default behavior for all other categories
       const subs = ZUZU_SUBCATEGORIES[btn.label] ?? [];
 
       const subButtons: ZuzuButton[] = subs.map((sub) => ({
@@ -832,13 +796,12 @@ function ZuzuApp() {
         )
       );
       setSelectedCategory(btn.label);
-
-      // 🔹 track category click
-      trackCategorySelection(btn.label);
       return;
     }
 
+    // ----------------- SUBCATEGORY CLICK -----------------
     if (btn.kind === "subcategory") {
+      // Housing with third level → show detailed buttons
       if (
         btn.category === "Housing" &&
         HOUSING_THIRD_LEVEL[btn.label] &&
@@ -873,12 +836,10 @@ function ZuzuApp() {
         );
         setSelectedCategory(btn.category ?? null);
         setSelectedSubcategory(btn.label);
-
-        // 🔹 track subcategory as part of category usage
-        trackCategorySelection(`${btn.category} – ${btn.label}`);
         return;
       }
 
+      // Other categories → call backend immediately
       const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.label}`;
       maybeUpdateTitle(`${btn.category} – ${btn.label}`);
 
@@ -890,13 +851,11 @@ function ZuzuApp() {
         )
       );
 
-      // 🔹 track subcategory
-      trackCategorySelection(`${btn.category} – ${btn.label}`);
-
       void sendMessageWithText(ctx, { skipUserMessage: true });
       return;
     }
 
+    // ----------------- THIRD LEVEL CLICK -----------------
     if (btn.kind === "thirdlevel") {
       const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.subcategory} | Detail: ${btn.label}`;
       maybeUpdateTitle(
@@ -911,17 +870,17 @@ function ZuzuApp() {
         )
       );
 
-      // 🔹 track third-level selection too (fine-grained)
-      trackCategorySelection(
-        `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
-      );
-
       void sendMessageWithText(ctx, { skipUserMessage: true });
     }
   }
 
+  // ============================================================
+  //          ADMIN STATE + MODAL + DASHBOARD RENDER
+  // ============================================================
+
   if (view === "admin") {
     if (!adminKey) {
+      // show admin code modal
       return (
         <AdminModal
           open={true}
@@ -935,6 +894,7 @@ function ZuzuApp() {
       );
     }
 
+    // If adminKey exists → show dashboard
     return (
       <AdminDashboard
         adminKey={adminKey}
@@ -945,6 +905,10 @@ function ZuzuApp() {
     );
   }
 
+  // ============================================================
+  //                           UI
+  // ============================================================
+
   return (
     <div
       className={`flex h-screen ${THEME.appBg}`}
@@ -953,18 +917,20 @@ function ZuzuApp() {
           'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Segoe UI, sans-serif',
       }}
     >
+      {/* ============================================================
+                      SIDEBAR
+      ============================================================ */}
       <aside
         className={`${sidebarCollapsed ? "w-16" : "w-80"} ${
           THEME.sidebarBg
         } border-r ${THEME.sidebarBorder} flex flex-col transition-all duration-300`}
       >
+        {/* Header */}
         <div className="h-20 px-4 flex items-center justify-between">
           {!sidebarCollapsed ? (
             <div>
               <h1 className={`text-2xl font-extrabold ${THEME.brand}`}>ZUZU</h1>
-              <p className={`text-xs ${THEME.textSub}`}>
-                Onboarding assistant
-              </p>
+              <p className={`text-xs ${THEME.textSub}`}>Onboarding assistant</p>
             </div>
           ) : (
             <h1 className={`text-xl font-extrabold ${THEME.brand}`}>Z</h1>
@@ -982,6 +948,7 @@ function ZuzuApp() {
           </button>
         </div>
 
+        {/* New conversation */}
         <div className="px-3">
           <button
             onClick={() => createNewConversation(false)}
@@ -992,6 +959,7 @@ function ZuzuApp() {
           </button>
         </div>
 
+        {/* Conversation List */}
         {!sidebarCollapsed && (
           <div className="p-3 space-y-1 flex-1 overflow-auto">
             {convos.map((c) => {
@@ -1016,6 +984,7 @@ function ZuzuApp() {
                     </div>
                   </div>
 
+                  {/* delete */}
                   <button
                     className={`p-1 rounded-full hover:bg-black/5 ${
                       active ? "text-white" : THEME.textSub
@@ -1033,6 +1002,7 @@ function ZuzuApp() {
           </div>
         )}
 
+        {/* Admin Dashboard Button */}
         <div className="p-3 border-t border-[#F3C58C]">
           <button
             onClick={() => setView("admin")}
@@ -1044,14 +1014,16 @@ function ZuzuApp() {
         </div>
       </aside>
 
+      {/* ============================================================
+                          MAIN CHAT AREA
+      ============================================================ */}
       <main className="flex-1 flex flex-col">
         <div className="flex-1 overflow-y-auto px-10 py-8 space-y-6">
+          {/* ============================================================
+                        RENDER ALL MESSAGES
+          ============================================================ */}
           {activeConvo?.messages.map((m) => {
             const isUser = m.role === "user";
-            const contentToShow =
-              !isUser && m.sources && m.sources.length > 0
-                ? stripSourcesSection(m.content)
-                : m.content;
 
             return (
               <div
@@ -1060,6 +1032,7 @@ function ZuzuApp() {
                   isUser ? "justify-end" : "justify-start"
                 } gap-3`}
               >
+                {/* BOT avatar */}
                 {!isUser && (
                   <div className="flex items-start pt-1">
                     <Image
@@ -1071,6 +1044,7 @@ function ZuzuApp() {
                   </div>
                 )}
 
+                {/* Bubble */}
                 <div
                   className={`max-w-2xl rounded-3xl border ${
                     THEME.bubbleBorder
@@ -1088,10 +1062,11 @@ function ZuzuApp() {
                             remarkPlugins={[remarkGfm]}
                             rehypePlugins={[rehypeSanitize]}
                           >
-                            {contentToShow}
+                            {m.content}
                           </ReactMarkdown>
                         </div>
 
+                        {/* Buttons under this bot message, if any */}
                         {m.buttons && m.buttons.length > 0 && (
                           <div className="mt-4 space-y-2">
                             {m.buttons.map((btn) => {
@@ -1104,7 +1079,7 @@ function ZuzuApp() {
                               const categoryClasses = `
                                 ${baseClasses}
                                 text-center px-5 py-4 rounded-lg
-                                bg[#FFF8F0]
+                                bg-[#FFF8F0]
                                 text-[#D68910]
                                 font-bold uppercase tracking-[0.05em]
                                 border-0
@@ -1148,6 +1123,7 @@ function ZuzuApp() {
                           </div>
                         )}
 
+                        {/* Sources block – clean, deduped, no scores */}
                         {m.sources && m.sources.length > 0 && (
                           <div className="mt-3 text-xs text-gray-500">
                             <div className="font-semibold mb-1">
@@ -1195,6 +1171,7 @@ function ZuzuApp() {
                   </div>
                 </div>
 
+                {/* USER avatar */}
                 {isUser && (
                   <div className="flex items-start pt-4">
                     <div className="w-9 h-9 rounded-full border border-[#F3C58C] bg-[#FFEFD9] grid place-items-center">
@@ -1206,31 +1183,12 @@ function ZuzuApp() {
             );
           })}
 
-          {/* Typing indicator bubble */}
-          {isTyping && (
-            <div className="flex justify-start gap-3 mb-4">
-              <div className="flex items-start pt-1">
-                <Image src="/zuzu.png" width={32} height={32} alt="ZUZU" />
-              </div>
-              <div
-                className={`max-w-xs rounded-3xl border ${THEME.bubbleBorder} px-4 py-3 shadow ${THEME.bubbleBotBg}`}
-              >
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <Sparkles size={14} className={THEME.textSub} />
-                  <span>ZUZU is thinking…</span>
-                  <span className="flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce"></span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce [animation-delay:0.15s]"></span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce [animation-delay:0.3s]"></span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div ref={bottomRef} />
         </div>
 
+        {/* ============================================================
+                        MESSAGE COMPOSER
+        ============================================================ */}
         <div
           className={`px-8 py-4 border-t ${THEME.sidebarBorder} bg-[#FBDDBD]`}
         >
@@ -1249,7 +1207,7 @@ function ZuzuApp() {
                 className={`
                   w-full resize-none rounded-full border ${THEME.sidebarBorder} 
                   bg-white px-6 py-3 text-sm ${THEME.textMain}
-                  placeholder[#C38A4A] focus:outline-none focus:ring-2
+                  placeholder-[#C38A4A] focus:outline-none focus:ring-2
                   focus:ring-[#FF9E1E]
                 `}
               />
@@ -1277,6 +1235,9 @@ function ZuzuApp() {
    ADMIN PORTAL (ACCESS MODAL + DASHBOARD)
    ============================================================ */
 
+/* ------------------------------------------------------------
+   VERIFY ADMIN TOKEN (CALLS BACKEND)
+------------------------------------------------------------ */
 async function verifyAdminToken(token: string): Promise<boolean> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -1303,6 +1264,9 @@ async function verifyAdminToken(token: string): Promise<boolean> {
   }
 }
 
+/* ------------------------------------------------------------
+   ADMIN ACCESS MODAL
+------------------------------------------------------------ */
 function AdminModal({
   open,
   onClose,
@@ -1375,6 +1339,10 @@ function AdminModal({
   );
 }
 
+/* ------------------------------------------------------------
+   FETCH DASHBOARD DATA FROM BACKEND
+   (expects raw output from /api/analytics)
+------------------------------------------------------------ */
 async function fetchDashboard(adminKey: string) {
   const res = await fetch(`${API_BASE}/analytics`, {
     headers: {
@@ -1388,6 +1356,9 @@ async function fetchDashboard(adminKey: string) {
   return await res.json();
 }
 
+/* ------------------------------------------------------------
+   SIMPLE BAR ROW (USED FOR CONSISTENCY + OTHER BARS)
+------------------------------------------------------------ */
 function BarRow({
   label,
   value,
@@ -1419,6 +1390,9 @@ function BarRow({
   );
 }
 
+/* ------------------------------------------------------------
+   MAIN ADMIN DASHBOARD
+------------------------------------------------------------ */
 export function AdminDashboard({
   adminKey,
   onBack,
@@ -1476,25 +1450,27 @@ export function AdminDashboard({
     );
   }
 
+  // d is the raw output from backend /api/analytics
   const totals = d.totals || {};
   const byDay = d.by_day || [];
   const topCategories = d.top_categories || [];
   const consistencyScore = d.consistencyScore ?? 0;
   const consistencyByCategory = d.consistencyByCategory || {};
 
+  // -------- PIE CHART DATA (12 fixed categories) --------
   const CATEGORY_COLORS = [
-    "#FF8A00",
-    "#FFC107",
-    "#7C3AED",
-    "#0EA5E9",
-    "#22C55E",
-    "#16A34A",
-    "#F97316",
-    "#EC4899",
-    "#10B981",
-    "#6366F1",
-    "#F59E0B",
-    "#3B82F6",
+    "#FF8A00", // Housing
+    "#FFC107", // Admissions
+    "#7C3AED", // Visa and Immigration
+    "#0EA5E9", // Travel and Arrival
+    "#22C55E", // Forms and Documentation
+    "#16A34A", // Money and Banking
+    "#F97316", // Campus Life and Academics
+    "#EC4899", // Health and Safety
+    "#10B981", // Phone and Connectivity
+    "#6366F1", // Work and Career
+    "#F59E0B", // Community and Daily Life
+    "#3B82F6", // Other Inquiries
   ];
 
   const countsByCat: Record<string, number> = {};
@@ -1510,6 +1486,7 @@ export function AdminDashboard({
 
   return (
     <div className={`absolute inset-0 ${THEME.appBg} overflow-auto`}>
+      {/* HEADER */}
       <header
         className={`p-5 border-b ${THEME.sidebarBorder} ${THEME.sidebarBg}`}
       >
@@ -1532,8 +1509,11 @@ export function AdminDashboard({
         </div>
       </header>
 
+      {/* BODY */}
       <main className="p-5 space-y-6">
+        {/* TOP CARDS */}
         <div className="grid gap-4 md:grid-cols-4">
+          {/* Total Users */}
           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
             <p className="text-[11px] font-semibold text-[#A06A32]">
               Total Users
@@ -1543,6 +1523,7 @@ export function AdminDashboard({
             </p>
           </div>
 
+          {/* Total Questions */}
           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
             <p className="text-[11px] font-semibold text-[#A06A32]">
               Total Questions
@@ -1552,6 +1533,7 @@ export function AdminDashboard({
             </p>
           </div>
 
+          {/* PII Alerts */}
           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
             <p className="text-[11px] font-semibold text-[#A06A32]">
               PII Alerts
@@ -1561,6 +1543,7 @@ export function AdminDashboard({
             </p>
           </div>
 
+          {/* Consistency */}
           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
             <p className="text-[11px] font-semibold text-[#A06A32]">
               Overall Consistency
@@ -1571,6 +1554,7 @@ export function AdminDashboard({
           </div>
         </div>
 
+        {/* QUESTIONS BY CATEGORY – CENTERED PIE CHART */}
         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
           <div className="flex items-center gap-2 mb-4">
             <PieChartIcon size={18} className={THEME.textSub} />
@@ -1580,6 +1564,7 @@ export function AdminDashboard({
           </div>
 
           <div className="flex flex-col items-center gap-6 md:flex-row md:items-center md:justify-center">
+            {/* Pie chart centered */}
             <div className="w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <RePieChart>
@@ -1602,6 +1587,7 @@ export function AdminDashboard({
               </ResponsiveContainer>
             </div>
 
+            {/* Legend: color + label only */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               {chartData.map((slice) => (
                 <div key={slice.label} className="flex items-center gap-2">
@@ -1616,6 +1602,7 @@ export function AdminDashboard({
           </div>
         </div>
 
+        {/* CONSISTENCY BY CATEGORY */}
         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
           <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
             Consistency by Category
@@ -1640,6 +1627,7 @@ export function AdminDashboard({
           </div>
         </div>
 
+        {/* DAILY USAGE (LAST 7 DAYS) */}
         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
           <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
             Usage (last 7 days)
@@ -1686,8 +1674,6 @@ export function AdminDashboard({
    DEFAULT EXPORT FOR NEXT.JS
 ------------------------------------------------------------ */
 
-const Page: React.FC = () => {
+export default function Page() {
   return <ZuzuApp />;
-};
-
-export default Page;
+}

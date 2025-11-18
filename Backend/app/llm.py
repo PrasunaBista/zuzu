@@ -10,161 +10,241 @@ from .utils import contains_pii
 
 load_dotenv()
 
-# ---- Azure OpenAI config ----
+# -------------------------------------------------------------------
+#  Azure OpenAI configuration
+# -------------------------------------------------------------------
 AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
 AZURE_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "").strip()
-AZURE_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01").strip()
-
-CHAT_MODEL = os.getenv("AZURE_OPENAI_GPT4_DEPLOYMENT", "gpt-4o").strip()
-EMBED_MODEL = os.getenv(
-    "AZURE_OPENAI_EMBED_DEPLOYMENT",
-    "text-embedding-3-large",
+AZURE_API_VERSION = os.getenv(
+    "AZURE_OPENAI_API_VERSION", "2024-02-01"
 ).strip()
 
-# 🔒 force 1536-dim embeddings everywhere
-EMBED_DIM = 1536
+GPT_DEPLOYMENT = os.getenv("AZURE_OPENAI_GPT4_DEPLOYMENT", "gpt-4o").strip()
+EMBED_DEPLOYMENT = os.getenv(
+    "AZURE_OPENAI_EMBED_DEPLOYMENT", "text-embedding-3-large"
+).strip()
 
-DEFAULT_SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are ZUZU...")
+if not AZURE_ENDPOINT or not AZURE_API_KEY:
+    raise RuntimeError("Azure OpenAI config not set in environment")
 
-_client: Optional[AzureOpenAI] = None
+client = AzureOpenAI(
+    azure_endpoint=AZURE_ENDPOINT,
+    api_key=AZURE_API_KEY,
+    api_version=AZURE_API_VERSION,
+)
+
+# -------------------------------------------------------------------
+#  SYSTEM PROMPT – who is ZUZU and how should it behave
+# -------------------------------------------------------------------
+SYSTEM_PROMPT = """
+You are ZUZU, a very friendly, practical onboarding guide for students
+at Wright State University, with special focus on international students.
+
+GOALS:
+- Help students understand housing, admissions, visa/immigration,
+  travel, money, campus life, health, and safety.
+- Reduce confusion and anxiety, especially for new international students.
+- Give step-by-step, concrete next actions — not vague advice.
+
+TONE:
+- Warm, clear, and encouraging, like a helpful older student or RA.
+- Professional but relaxed, no corporate jargon.
+- Use short paragraphs and bullet points when helpful.
+
+FLOW AND CONVERSATION BEHAVIOR:
+
+1) FIRST MESSAGE / GREETING
+   - THE front end has already send a meesage asked if they are undergrad/grad and international/domestic student. so the first input of that usually is the answer to that question , if it is the answer then acknowledge it other wise ask for clarification. But if it is a question already then you can answer.
+   - Example:
+     Frontend:"Hi! I’m ZUZU, your onboarding guide for Wright State University 😊
+      Are you an undergraduate or graduate student, and are you an
+      international student or a U.S. (domestic) student?"
+
+2) AFTER THEY ANSWER WHO THEY ARE
+   - Briefly acknowledge what they said.
+   - Then invite them to choose a topic. The UI will show buttons for:
+     - Housing
+     - Admissions
+     - Visa and Immigration
+     - Travel and Arrival
+     - Forms and Documentation
+     - Money and Banking
+     - Campus Life and Academics
+     - Health and Safety
+     - Other Inquiries
+   - You do NOT control the buttons, but you should talk as if those
+     categories exist (for example: “You can tap *Housing* if you want to
+     dive into where to live.”)
+
+3) HOUSING FLOW (VERY IMPORTANT)
+   - Housing is a big topic. Before recommending options, ask 1–3 short
+     clarifying questions such as:
+       - "Do you prefer to cook often, or are you okay using a meal plan?"
+       - "Do you prefer a quieter space, or are you fine with a more social area?"
+       - "Do you want roommates, or would you prefer your own room if possible?"
+       - "About how much can you afford per month for housing?"
+   - ONLY after at least one answer, give recommendations that match:
+       - Hamilton Hall / Honors Community / The Woods (traditional halls)
+       - Apartments like College Park, University Park, Forest Lane, The Village
+   - Explain trade-offs clearly:
+       - Meal plan required in residence halls, optional in apartments.
+       - Halls are more social and structured; apartments give more independence.
+
+4) OTHER CATEGORIES
+   - For visa & immigration, money, health, etc., ask 1–3 small clarifying
+     questions if needed, then give specific next steps (who to contact,
+     which office, which forms, what to do online).
+   - Always tie answers back to Wright State context (e.g. housing office,
+     international student office, etc.) when you know it.
+
+5) BUTTON CLICKS AS TEXT
+   - The UI may send you messages like:
+       "Housing → Apply / Eligibility"
+       "Housing → Apartments"
+       "Visa and Immigration → I-20 questions"
+   - Treat these as the student choosing a button. Do NOT repeat the
+     breadcrumb text back; instead, respond as if they said:
+       "I have questions about [that topic]."
+   - If the message already specifies a very narrow subtopic, you can skip
+     extra clarification and go straight into a focused answer.
+
+SOURCES AND TRUTHFULNESS:
+
+- Your knowledge is combined with a local docs database pulled from
+  Wright State websites and official resources.
+- When you are given snippets or links in the system messages, you MUST:
+    - Use them as the primary truth.
+    - Not contradict them.
+- IMPORTANT: **Do NOT** add a "Sources" section in your answer.
+  The application UI will show sources separately at the bottom.
+- You can still refer to offices/resources in natural language
+  (for example: “You can also check the Wright State Housing site…”),
+  but do not format a dedicated "Sources:" block.
+- If you are unsure or the docs do not cover something, say you’re not
+  sure and suggest contacting the appropriate WSU office instead of
+  guessing.
 
 
-def _get_client() -> AzureOpenAI:
-    """
-    Lazily create and reuse a single AzureOpenAI client.
-    """
-    global _client
-    if _client is None:
-        if not AZURE_API_KEY or not AZURE_ENDPOINT:
-            raise RuntimeError(
-                "AZURE_OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT not set"
-            )
+PII AND SAFETY:
 
-        _client = AzureOpenAI(
-            api_key=AZURE_API_KEY,
-            azure_endpoint=AZURE_ENDPOINT,
-            api_version=AZURE_API_VERSION,
-        )
-    return _client
+- Never ask for or process very sensitive personal information:
+  Social Security Number, phone number, passport number, full home
+  address, credit/debit card, bank account numbers, etc.
+- If a student tries to send those, gently tell them:
+  - you cannot process or store that information,
+  - they should only give that data to official and secure university
+    systems or government websites.
 
+STYLE REMINDERS:
 
-def _assert_no_pii_in_messages(messages: List[Dict]) -> None:
-    """
-    Last-resort PII guard. We already block PII in /api/chat,
-    so here we just *logically* check but DO NOT raise.
-    """
-    # If you want, you can log here, but do not crash the request.
-    for m in messages:
-        content = m.get("content") or ""
-        if contains_pii(content):
-            # just ignore / pass – PII was supposed to be blocked at the edge
-            return
-    return
+- Prefer short paragraphs, headings, and bullet points.
+- Always be student-centered and empathetic.
+- For housing suggestions, always tie recommendations to their stated
+  preferences (budget, cooking, roommates, quiet/noisy, etc.).
+  
+- The frontend has ALREADY asked:
+  "Are you a graduate, undergraduate, national, or international student?"
+- You will receive a summary message like:
+  "Student profile: graduate student, international."
+- DO NOT ask this question again.
+- Assume that information is already known and stored in memory.
+"""
 
 
-# ---------- Embeddings (SYNC) ----------
-
-def _embed_sync(text: str) -> List[float]:
-    """
-    Low-level synchronous embedding call.
-    Always uses EMBED_DIM dimensions.
-    """
-    client = _get_client()
-    resp = client.embeddings.create(
-        model=EMBED_MODEL,
-        input=text,
-        dimensions=EMBED_DIM,
-    )
-    return resp.data[0].embedding
-
-
-def embed_text(text: str) -> List[float]:
-    """
-    Public sync helper for embeddings - used by RAG/search.
-    """
-    if not text:
-        return []
-    return _embed_sync(text)
-
-
-async def embed_text_async(text: str) -> List[float]:
-    """
-    Async wrapper around embed_text, used by analytics consistency calculator.
-    """
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, embed_text, text)
-
-
-# ---------- Chat completions ----------
-
-def _chat_sync(
-    messages: List[Dict],
+# -------------------------------------------------------------------
+#  Chat completion wrapper
+# -------------------------------------------------------------------
+async def chat_complete(
+    messages: List[Dict[str, str]],
     temperature: float = 0.3,
-    max_tokens: int = 800,
+    max_tokens: int = 700,
 ) -> str:
     """
-    Synchronous Azure OpenAI chat completion call.
-    """
-    _assert_no_pii_in_messages(messages)
-    client = _get_client()
+    Call Azure OpenAI chat completion with the given messages.
 
-    response = client.chat.completions.create(
-        model=CHAT_MODEL,
+    `messages` should already include a system message (normally SYSTEM_PROMPT).
+    """
+    resp = client.chat.completions.create(
+        model=GPT_DEPLOYMENT,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    return response.choices[0].message.content
+    choice = resp.choices[0]
+    text = choice.message.content or ""
+    return text
 
 
-async def chat_complete(
-    messages: List[Dict],
-    temperature: float = 0.3,
-    max_tokens: int = 800,
-) -> str:
-    """
-    Async wrapper that runs the sync call in a thread pool.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # Fallback for older event loop setups
-        loop = asyncio.get_event_loop()
+# -------------------------------------------------------------------
+#  Embedding helpers – used for search + analytics
+# -------------------------------------------------------------------
+def embed_text(text: str) -> List[float]:
+    cleaned = (text or "").replace("\n", " ")
+    if not cleaned.strip():
+        return []
 
-    return await loop.run_in_executor(
-        None,
-        _chat_sync,
-        messages,
-        temperature,
-        max_tokens,
+    resp = client.embeddings.create(
+        model=EMBED_DEPLOYMENT,
+        input=[cleaned],
+        dimensions=1536,  # force 1536
     )
+    return resp.data[0].embedding
 
 
-# ---------- Summarizer for chat memory ----------
+async def embed_text_async(text: str):
+    cleaned = (text or "").replace("\n", " ")
+    if not cleaned.strip():
+        return []
 
+    resp = client.embeddings.create(
+        model=EMBED_DEPLOYMENT,
+        input=[cleaned],
+        dimensions=1536,  # force 1536
+    )
+    return resp.data[0].embedding
+
+# -------------------------------------------------------------------
+#  Summarizer for chat memory
+# -------------------------------------------------------------------
 async def summarize_history(snippets: List[Dict]) -> str:
     """
-    Summarize prior dialogue into a compact, neutral context (6-8 sentences)
-    that includes key facts like: student level (undergrad/grad), housing
-    interests, and any strong preferences.
+    Summarize prior dialogue into a compact, neutral context (6–8 sentences)
+    that includes key facts like:
+    - student level (undergrad/grad)
+    - international vs domestic
+    - housing preferences
+    - visa/immigration constraints
+    - important constraints like budget or move-in timing
+
+    This summary is used as additional context for future turns.
     """
     if not snippets:
         return ""
 
-    flat = "\n".join(
-        f"{m.get('role', 'user')}: {m.get('content', '')}"
-        for m in snippets
-        if m.get("content")
-    )
+    # Turn history into a flat transcript
+    lines: List[str] = []
+    for m in snippets:
+        role = m.get("role", "user")
+        content = m.get("content", "") or ""
+        # Make sure we don’t carry any raw PII if something slipped through
+        if contains_pii(content):
+            content = "[POTENTIAL PII REDACTED IN SUMMARY]"
+        lines.append(f"{role}: {content}")
 
-    prompt: List[Dict] = [
+    flat = "\n".join(lines)
+
+    prompt = [
         {
             "role": "system",
             "content": (
-                "Summarize the dialogue below into a short, neutral context "
-                "(6-8 sentences). Highlight if the student is undergraduate "
-                "or graduate, any housing preferences, visa/immigration "
-                "constraints, and important constraints like budget or move-in timing."
+                "You are summarizing an onboarding chat between a student "
+                "and ZUZU, a Wright State University onboarding assistant. "
+                "Write a short, neutral summary (6–8 sentences) capturing:\n"
+                "- Whether the student is undergraduate or graduate\n"
+                "- Whether they are international or domestic\n"
+                "- Housing preferences (meal plan vs cooking, roommates, quiet vs social, budget)\n"
+                "- Any visa/immigration constraints mentioned\n"
+                "- Important constraints like timing, deadlines, or urgent issues."
             ),
         },
         {"role": "user", "content": flat},

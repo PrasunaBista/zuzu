@@ -9,6 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from psycopg import OperationalError
+
+import logging
+
+
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 from .schemas import (
@@ -18,169 +24,89 @@ from .schemas import (
     ChatReply,
     SearchRequest,
     SearchResponse,
+    AdminAnalyticsResponse, 
 )
 from .db import pool, ensure_schema
 from .storage import append_message, get_chat, delete_chat, get_last_messages
-from .llm import chat_complete, summarize_history
+from .llm import chat_complete, summarize_history,SYSTEM_PROMPT
 from .analytics import get_analytics
+
+
 from .search import search_docs
 from .utils import naive_category, contains_pii, mask_pii
 
 app = FastAPI(title="ZUZU Backend")
 
+# ------------------------------------------------------
+# CORS
+# ------------------------------------------------------
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
+ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS if o.strip()]
 
+if not ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS = ["*"]
 
-origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-@app.get("/")
-def read_root():
-    return {"status": "ok", "message": "ZUZU backend is running"}
+
+ADMIN_DASH_TOKEN = os.getenv("ADMIN_DASH_TOKEN", "WSU")
 
 
-# --------- Env toggles ---------
-SOURCES_TOPK = int(os.getenv("SOURCES_TOPK", "3"))
-APPEND_SOURCES = os.getenv("APPEND_SOURCES", "true").lower() == "true"
-
-# Per-conversation memory controls
-MEMORY_LAST_TURNS = int(os.getenv("MEMORY_LAST_TURNS", "6"))
-MEMORY_SUMMARIZE = os.getenv("MEMORY_SUMMARIZE", "true").lower() == "true"
-MEMORY_SUMMARY_THRESHOLD = int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "8"))
-
-ADMIN_DASH_TOKEN = os.getenv("ADMIN_DASH_TOKEN", "").strip()
+# ------------------------------------------------------
+# Pydantic models (if not already in schemas)
+# ------------------------------------------------------
+class DeviceHeader(BaseModel):
+    device_id: str
 
 
-class AdminVerifyRequest(BaseModel):
-    token: str
-
-
-@app.post("/api/admin/verify")
-async def admin_verify_route(body: AdminVerifyRequest):
+def require_device_id(
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+) -> str:
     """
-    Simple admin code verification for the dashboard.
-    Compares the posted token with ADMIN_DASH_TOKEN from env.
+    Extract device id from the X-Device-Id header (as sent by the frontend).
     """
-    if not ADMIN_DASH_TOKEN:
-        raise HTTPException(500, "Admin token is not configured on the server")
-
-    is_valid = body.token.strip() == ADMIN_DASH_TOKEN
-    return {"valid": is_valid}
-
-
- # see below
-SYSTEM_PROMPT="""
-You are ZUZU, an AI onboarding assistant for international students at Wright State University.
-
-Tone and style:
-- Warm, friendly, and practical.
-- Speak in clear, simple English.
-- Keep answers concise but complete.
-- Always assume the student may be stressed, confused, or far from home.
-
-Conversation behavior:
-- Whenever a student asks a broad question, first ask 1–2 short clarifying questions before giving a long answer.
-- Explicitly confirm your understanding back to the student in one line before you give detailed steps.
-- Always structure longer answers with short headings or bullet points so they are easy to skim on a phone.
-
-Housing-specific behavior:
-- If the conversation is about housing (or you detect housing-related keywords), do NOT immediately list options.
-- Instead, first ask a few gentle questions such as:
-  - “Do you like to cook regularly or mostly eat outside?”
-  - “About how much can you comfortably spend per month on housing (a rough range is fine)?”
-  - “Would you rather have roommates and a social environment, or more privacy and quiet?”
-  - “Would you prefer to live on campus or off campus if both are possible?”
-- After the student answers, summarize what you learned in 1–2 sentences, then recommend housing options that match their preferences.
-
-
-INTERACTIVE CLARIFYING QUESTIONS:
-
-- Before giving housing options, ask 1–3 short questions to personalize suggestions, for example:
-  - “Do you prefer to cook often or eat out most of the time?”
-  - “Do you like a quieter space, or are you okay with a more social environment?”
-  - “Are you hoping to live with roommates, or would you prefer your own room if possible?”
-- Similarly, for other topics (visa, money, community life), ask 1–2 clarifying questions before giving a long answer, so your guidance feels tailored rather than generic.
-
-STYLE:
-
-- Sound warm, clear, and encouraging — like a helpful older student or advisor.
-
-Safety and boundaries:
-- Never ask for or store highly sensitive personal information such as full name, date of birth, full home address, Social Security Number, phone number, credit card numbers, etc.
-- If a student tries to share those details, gently explain that you cannot process them and suggest what to do instead.
-- For work authorization, visa, and immigration questions, give high-level guidance and direct students back to the official international office and government websites.
-
-Your goal is to:
-- Reduce confusion.
-- Help the student feel supported and less alone.
-- Guide them step by step with practical next actions.
-"""
-
-def require_device_id(x_device_id: Optional[str] = Header(None)) -> str:
-    if not x_device_id or not x_device_id.strip():
-        raise HTTPException(400, "Missing X-Device-Id")
-    return x_device_id.strip()
-
-
-def is_admin(x_admin_key: Optional[str] = Header(None)) -> bool:
-    return bool(
-        ADMIN_DASH_TOKEN
-        and x_admin_key
-        and x_admin_key.strip() == ADMIN_DASH_TOKEN
-    )
-
-
-
+    if not x_device_id:
+        raise HTTPException(400, "Missing X-Device-Id header")
+    return x_device_id
+# ------------------------------------------------------
+# Startup: ensure DB schema
+# ------------------------------------------------------
 @app.on_event("startup")
-def _startup():
-    try:
-        ensure_schema()
-    except Exception as e:
-        print("⚠️ Failed to ensure schema on startup:", e)
+async def on_startup():
+    ensure_schema()
 
 
-
-# ----------------- Chat CRUD -----------------
-
-
-@app.post("/api/chats", response_model=ChatSummary)
-async def create_chat(body: ChatCreate, device_id: str = Depends(require_device_id)):
-    """
-    Create a new conversation bound to this anonymous device_id.
-    No student name or ID is stored here, which helps with FERPA scope.
-    """
-    cid = uuid4()
-    title = body.title or "New Conversation"
-    with pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO chats(chat_id, title, device_id) VALUES(%s, %s, %s)",
-            (cid, title, device_id),
-        )
-    now = datetime.now(timezone.utc).isoformat()
-    return ChatSummary(chat_id=cid, title=title, created_at=now, updated_at=now)
+# ------------------------------------------------------
+# Chats list + history
+# ------------------------------------------------------
+def _shape_chat_summary_row(row) -> ChatSummary:
+    return ChatSummary(
+        chat_id=row[0],
+        title=row[1],
+        created_at=row[2].isoformat(),
+        updated_at=row[3].isoformat(),
+    )
 
 
 @app.get("/api/chats", response_model=List[ChatSummary])
 async def list_chats(
+    device_id: str = Depends(require_device_id),
     limit: int = 50,
     offset: int = 0,
-    device_id: str = Depends(require_device_id),
 ):
+    """List chats for a given device, newest first."""
     with pool.connection() as conn:
         rows = conn.execute(
             """
-            SELECT c.chat_id, c.title, c.created_at, c.updated_at
-            FROM chats c
-            WHERE c.device_id = %s
-            AND EXISTS (
-                SELECT 1 FROM message_events me
-                WHERE me.chat_id = c.chat_id
-            )
-            ORDER BY c.updated_at DESC
+            SELECT chat_id, title, created_at, updated_at
+            FROM chats
+            WHERE device_id=%s
+            ORDER BY updated_at DESC
             LIMIT %s OFFSET %s
             """,
             (device_id, limit, offset),
@@ -203,6 +129,67 @@ async def get_chat_messages(
     device_id: str = Depends(require_device_id),
 ):
     # Verify chat belongs to this device before returning messages
+        # ✅ ensure chat exists + is tied to this device
+    try:
+        with pool.connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM chats WHERE chat_id=%s AND device_id=%s",
+                (chat_id, device_id),
+            ).fetchone()
+
+            if not row:
+                # auto-create chat row if this UUID is new
+                conn.execute(
+                    """
+                    INSERT INTO chats (chat_id, title, device_id)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (chat_id) DO NOTHING
+                    """,
+                    (chat_id, "New Conversation", device_id),
+                )
+    except OperationalError as e:
+        logger.exception("Database connection error in chat_api: %s", e)
+        raise HTTPException(
+            500,
+            "Temporary database connection issue. Please try your question again in a moment.",
+        )
+
+
+    return JSONResponse(await get_chat(str(chat_id)))
+
+
+@app.post("/api/chats", response_model=ChatSummary)
+async def create_chat(
+    body: ChatCreate,
+    device_id: str = Depends(require_device_id),
+):
+    """Create a new empty chat record and return its summary."""
+    chat_id = uuid4()
+    now = datetime.now(timezone.utc)
+
+    with pool.connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO chats (chat_id, device_id, title, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (chat_id, device_id, body.title or "New Conversation", now, now),
+        )
+
+    return ChatSummary(
+        chat_id=chat_id,
+        title=body.title or "New Conversation",
+        created_at=now.isoformat(),
+        updated_at=now.isoformat(),
+    )
+
+
+@app.delete("/api/chats/{chat_id}")
+async def delete_chat_api(
+    chat_id: UUID,
+    device_id: str = Depends(require_device_id),
+):
+    """Delete a chat and its messages."""
     with pool.connection() as conn:
         row = conn.execute(
             "SELECT 1 FROM chats WHERE chat_id=%s AND device_id=%s",
@@ -210,44 +197,13 @@ async def get_chat_messages(
         ).fetchone()
 
         if not row:
-            # Auto-create a chat row if frontend is using a local-only UUID
-            conn.execute(
-                """
-                INSERT INTO chats (chat_id, title, device_id)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (chat_id) DO NOTHING
-                """,
-                (chat_id, "New Conversation", device_id),
-            )
-
-    return JSONResponse(await get_chat(str(chat_id)))
-
-
-@app.delete("/api/chats/{chat_id}")
-async def delete_chat_route(
-    chat_id: UUID,
-    device_id: str = Depends(require_device_id),
-):
-    with pool.connection() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM chats WHERE chat_id=%s AND device_id=%s",
-            (chat_id, device_id),
-        ).fetchone()
-    if not row:
-        raise HTTPException(404, "Chat not found for this device")
+            raise HTTPException(404, "Chat not found or does not belong to this device")
 
     await delete_chat(str(chat_id))
-    with pool.connection() as conn:
-        conn.execute(
-            "DELETE FROM chats WHERE chat_id=%s AND device_id=%s",
-            (chat_id, device_id),
-        )
-        conn.execute("DELETE FROM message_events WHERE chat_id=%s", (chat_id,))
     return {"ok": True}
 
 
 # ----------------- Chat with LLM (+ Memory + Sources) -----------------
-
 
 
 @app.post("/api/chat", response_model=ChatReply)
@@ -276,59 +232,89 @@ async def chat_api(body: ChatPost, device_id: str = Depends(require_device_id)):
             )
 
     # ---------------- PII CHECK ----------------
+        # ---------------- PII CHECK ----------------
     if contains_pii(user_msg):
         with pool.connection() as conn:
             conn.execute(
-                "INSERT INTO pii_events(chat_id, device_id, sample_masked) "
+                "INSERT INTO pii_events(chat_id, device_id, pii_type) "
                 "VALUES(%s, %s, %s)",
-                (chat_id, device_id, mask_pii(user_msg)[:300]),
+                (chat_id, device_id, "generic"),
             )
+
+        friendly_msg = (
+            "⚠️ Oops, this message looks like it includes personal details "
+            "such as your full name, address, phone number, or ID/number.\n\n"
+            "For your safety, I can’t use or store that kind of information, "
+            "so this message wasn’t saved or sent anywhere.\n\n"
+            "Please ask your question again *without* any personal details "
+            "— for example, you can say “a student like me” instead of your "
+            "real name or exact information."
+        )
+
         return ChatReply(
             chat_id=UUID(chat_id),
-            reply=(
-                "> ⚠️ **PII detected** — please remove full name, age, SSN, "
-                "passport, phone, card numbers and try again.\n\n"
-                "*Your message was blocked and not stored or sent to the model.*"
-            ),
+            reply=friendly_msg,
             pii_blocked=True,
-            warning="PII detected and blocked",
+            warning="Personal information detected. Message ignored for your safety.",
         )
 
     # ---------------- STORE USER MESSAGE ----------------
+        # ---------------- STORE USER MESSAGE ----------------
     await append_message(chat_id, "user", user_msg)
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO message_events(chat_id, role, category) "
-            "VALUES(%s, 'user', %s)",
-            (chat_id, naive_category(user_msg)),
+            """
+            INSERT INTO message_events (chat_id, device_id, role, category, created_at)
+            VALUES (%s, %s, 'user', %s, now())
+            """,
+            (chat_id, device_id, naive_category(user_msg)),
         )
-        conn.execute("UPDATE chats SET updated_at=now() WHERE chat_id=%s", (chat_id,))
+        conn.execute(
+            "UPDATE chats SET updated_at = now() WHERE chat_id = %s",
+            (chat_id,),
+        )
+
 
     # ---------------- MEMORY ----------------
     recent = await get_last_messages(
-        chat_id, limit=max(MEMORY_LAST_TURNS, MEMORY_SUMMARY_THRESHOLD)
+        chat_id,
+        limit=int(os.getenv("MEMORY_LAST_TURNS", "6")),
     )
-    summary = ""
-    try:
-        if MEMORY_SUMMARIZE and len(recent) >= MEMORY_SUMMARY_THRESHOLD:
-            summary = await summarize_history(recent)
-    except Exception:
-        summary = ""
 
-    # ---------------- RAG SOURCES ----------------
-    hits = []
+    summary: Optional[str] = None
+    if os.getenv("MEMORY_SUMMARIZE", "true").lower() == "true":
+        if len(recent) >= int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "8")):
+            try:
+                summary = await summarize_history(recent)
+            except Exception:
+                summary = None
+
+    # ---------------- RETRIEVAL CONTEXT ----------------
+    
+
+# ...
+
+# ---------------- RETRIEVAL CONTEXT ----------------
     context_block = ""
+    hits = []
     try:
-        if SOURCES_TOPK > 0:
-            hits = search_docs(user_msg, top_k=SOURCES_TOPK)
+        from .search import search_docs
+
+        sources_topk = int(os.getenv("SOURCES_TOPK", "6"))
+        hits = search_docs(user_msg, sources_topk)
+        logger.info("Vector search for '%s' returned %d hits", user_msg, len(hits))
+
+        if hits:
             context_lines = [
-                f"- {(h.get('title') or h.get('url') or 'Source')}: {h.get('url') or ''}".strip()
+                f"[{h['source']}] {h['content_snippet']}"
                 for h in hits
             ]
             context_block = "\n".join([ln for ln in context_lines if ln])
-    except Exception:
+    except Exception as e:
+        logger.exception("Vector search failed: %s", e)
         hits = []
         context_block = ""
+
 
     messages: List[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -338,25 +324,20 @@ async def chat_api(body: ChatPost, device_id: str = Depends(require_device_id)):
             {
                 "role": "system",
                 "content": (
-                    "Conversation summary so far (do not show to student):\n"
+                    "Conversation so far (summary for context):\n"
                     f"{summary}"
                 ),
             }
         )
-
-    raw_recent = recent[-MEMORY_LAST_TURNS:] if MEMORY_LAST_TURNS > 0 else []
-    for m in raw_recent:
-        r = m.get("role")
-        c = m.get("content")
-        if r in ("user", "assistant") and c:
-            messages.append({"role": r, "content": c})
 
     if context_block:
         messages.append(
             {
                 "role": "system",
                 "content": (
-                    "Relevant sources (title and URL, do not show verbatim):\n"
+                    "Here are ZUZU knowledge snippets that might be relevant. "
+                    "Use them when helpful, and ALWAYS cite the source like "
+                    "**Source: Housing site** in your answer when you use one.\n\n"
                     f"{context_block}"
                 ),
             }
@@ -366,84 +347,132 @@ async def chat_api(body: ChatPost, device_id: str = Depends(require_device_id)):
 
     # ---------------- CALL LLM ----------------
     reply = await chat_complete(messages)
+    # Always append sources if we used the vector DB
+    # if hits and os.getenv("APPEND_SOURCES", "true").lower() == "true":
+    #     source_lines = []
+    #     for h in hits:
+    #         label = h.get("title") or h.get("source") or "ZUZU knowledge"
+    #         source_lines.append(f"- {label}")
+    #     reply += "\n\n**Sources**:\n" + "\n".join(source_lines)
 
-    # Append Sources list (markdown) when hits exist
-    if APPEND_SOURCES and hits:
-        dedup = []
-        seen = set()
-        for h in hits:
-            url = (h.get("url") or "").strip()
-            title = (h.get("title") or url or "Source").strip()
-            key = url or title
-            if key and key not in seen:
-                seen.add(key)
-                dedup.append(f"- [{title}]({url})" if url else f"- {title}")
-        if dedup:
-            reply = reply.rstrip() + "\n\n**Sources**\n" + "\n".join(dedup)
 
-    # Store assistant reply
+    # ---------------- STORE ASSISTANT MESSAGE ----------------
+        # ---------------- STORE ASSISTANT MESSAGE ----------------
     await append_message(chat_id, "assistant", reply)
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO message_events(chat_id, role, category) "
-            "VALUES(%s, 'assistant', NULL)",
+            """
+            INSERT INTO message_events (chat_id, device_id, role, category)
+            VALUES (%s, %s, 'assistant', %s)
+            """,
+            (chat_id, device_id, naive_category(reply)),
+        )
+        conn.execute(
+            "UPDATE chats SET updated_at = now() WHERE chat_id = %s",
             (chat_id,),
         )
 
-    return ChatReply(chat_id=UUID(chat_id), reply=reply)
 
-# ----------------- Analytics & Search -----------------
+    return ChatReply(
+        chat_id=UUID(chat_id),
+        reply=reply,
+        sources=hits,
+    )
+
+from fastapi import Body
+
+class CategoryEvent(BaseModel):
+    chat_id: str
+    category: str
+    subcategory: Optional[str] = None
+    detail: Optional[str] = None
 
 
-
-@app.get("/api/analytics")
-async def analytics(
-    tf: str = "7d",
+@app.post("/api/track-category")
+async def track_category(
+    body: CategoryEvent,
     device_id: str = Depends(require_device_id),
-    admin: bool = Depends(is_admin),
 ):
     """
-    Admin: see analytics across all devices.
-    Student: see analytics only for this device.
-    `tf` is currently not used for filtering but kept for future time-windowing.
+    Record a category selection as a 'user' message_event without
+    creating a visible chat message.
     """
-    data = await get_analytics(None if admin else device_id)
-    # Just return exactly what get_analytics() gives
-    return JSONResponse(data)
+    chat_id = body.chat_id
 
-# async def analytics(
-#     tf: str = "7d",
-#     device_id: str = Depends(require_device_id),
-#     admin: bool = Depends(is_admin),
-# ):
-#     """
-#     Admin: see analytics across all devices.
-#     Student: see analytics only for this device.
-#     `tf` is currently not used for filtering but kept for future time-windowing.
-#     """
-#     data = await get_analytics(None if admin else device_id)
+    from psycopg import OperationalError
 
-#     by_day = data.get("by_day", [])
-#     top_categories = data.get("top_categories", [])
-#     chats_total = data.get("totals", {}).get("chats", 0)
-#     pii_flags = data.get("totals", {}).get("pii_flags", 0)
-#     consistency_score = data.get("consistencyScore", 100.0)
-#     consistency_by_category = data.get("consistencyByCategory", {})
+    try:
+        with pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO message_events (chat_id, device_id, role, category, created_at)
+                VALUES (%s, %s, 'user', %s, now())
+                """,
+                (chat_id, device_id, body.category or "Other Inquiries"),
+            )
+            conn.execute(
+                "UPDATE chats SET updated_at = now() WHERE chat_id = %s",
+                (chat_id,),
+            )
+    except OperationalError as e:
+        logger.exception("DB error in track-category: %s", e)
+        raise HTTPException(500, "Database error while tracking category")
 
-#     shaped = {
-#         "totalQuestions": chats_total,
-#         "questionCategories": top_categories,
-#         "dailyQuestions": [
-#             {"date": d.get("date"), "questions": d.get("count", 0)} for d in by_day
-#         ],
-#         "piiFlags": pii_flags,
-#         "consistencyScore": consistency_score,
-#         "consistencyByCategory": [
-#             {"category": cat, "score": float(score)}
-#             for cat, score in consistency_by_category.items()
-#         ],
-#     }
-#     return JSONResponse(shaped)
+    return {"ok": True}
+
+
+@app.post("/api/admin/verify")
+async def verify_admin(payload: dict = Body(None)):
+    """
+    Verify the admin dashboard code.
+
+    Frontend sends: { "token": "<code>" }
+    It expects: { "valid": true/false }
+    """
+    if not isinstance(payload, dict):
+        return {"valid": False}
+
+    code = (
+        payload.get("code")
+        or payload.get("adminCode")
+        or payload.get("token")
+        or payload.get("password")
+    )
+
+    if not code:
+        return {"valid": False}
+
+    if code == ADMIN_DASH_TOKEN:
+        return {"valid": True}
+
+    return {"valid": False}
+
+# ----------------- Analytics -----------------
+
+
+# ----------------- Analytics -----------------
+
+
+@app.get("/api/analytics", response_model=AdminAnalyticsResponse)
+async def analytics_api(
+    device_id: Optional[str] = Depends(require_device_id),
+    admin_token: Optional[str] = Header(None, alias="X-Admin-Key"),
+):
+    """
+    If X-Admin-Key == ADMIN_DASH_TOKEN → return system-wide analytics.
+    Otherwise → return analytics scoped to this device_id.
+    """
+    if admin_token == ADMIN_DASH_TOKEN:
+        device_filter = None
+    else:
+        device_filter = device_id
+
+    return await get_analytics(device_filter)
+
+
+
+# If you ever want a "flat" analytics shape instead, you can reshape here
+# but right now the frontend expects the structure returned by get_analytics.
 
 
 @app.post("/api/search", response_model=SearchResponse)

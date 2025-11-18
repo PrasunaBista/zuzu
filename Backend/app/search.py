@@ -1,21 +1,33 @@
 from .db import pool
 from .llm import embed_text as embed
 
-
 def search_docs(query: str, top_k: int = 5):
     v = embed(query)
     with pool.connection() as conn:
         rows = conn.execute(
             """
-            SELECT id, title, url,
-                   1 - (embedding <=> %s::vector) AS score
+            SELECT
+                id,
+                title,
+                url,
+                LEFT(content, 1200) AS content_snippet,
+                'WSU housing site' AS source,
+                1 - (embedding <=> %s::vector) AS score
             FROM docs
             ORDER BY embedding <=> %s::vector
             LIMIT %s
             """,
-            (v, v, top_k)
+            (v, v, top_k),
         ).fetchall()
+
     return [
-        {"id": r[0], "title": r[1], "url": r[2], "score": float(r[3])}
+        {
+            "id": r[0],
+            "title": r[1],
+            "url": r[2],
+            "content_snippet": r[3],
+            "source": r[4],
+            "score": float(r[5]),
+        }
         for r in rows
     ]
