@@ -41,6 +41,16 @@ app = FastAPI(title="ZUZU Backend")
 def ping():
     return {"status": "alive"}
 
+@app.on_event("startup")
+async def on_startup():
+    try:
+        ensure_schema()
+    except Exception as e:
+        logger.exception("❌ ensure_schema failed on startup, continuing without crash: %s", e)
+        # Do NOT re-raise – we want the app to keep running
+        pass
+
+
 
 # ------------------------------------------------------
 # CORS
@@ -51,14 +61,20 @@ ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS if o.strip()]
 if not ALLOWED_ORIGINS:
     ALLOWED_ORIGINS = ["*"]
 
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=ALLOWED_ORIGINS,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],       # open for now
+    allow_credentials=False,   # MUST be False when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 ADMIN_DASH_TOKEN = os.getenv("ADMIN_DASH_TOKEN", "WSU")
 
 
@@ -69,15 +85,29 @@ class DeviceHeader(BaseModel):
     device_id: str
 
 
+# def require_device_id(
+#     x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+# ) -> str:
+#     """
+#     Extract device id from the X-Device-Id header (as sent by the frontend).
+#     """
+#     if not x_device_id:
+#         raise HTTPException(400, "Missing X-Device-Id header")
+#     return x_device_id
+
 def require_device_id(
     x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
 ) -> str:
     """
-    Extract device id from the X-Device-Id header (as sent by the frontend).
+    Use the real device id when the frontend sends it.
+    Fall back to 'anonymous' for preflight / health / misc requests
+    so we don't throw 400s and break CORS.
     """
-    if not x_device_id:
-        raise HTTPException(400, "Missing X-Device-Id header")
-    return x_device_id
+    if x_device_id:
+        return x_device_id
+
+    # For OPTIONS, health checks, or any tools that don't send the header.
+    return "anonymous"
 # ------------------------------------------------------
 # Startup: ensure DB schema
 # ------------------------------------------------------
