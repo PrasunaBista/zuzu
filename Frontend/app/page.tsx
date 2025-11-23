@@ -234,6 +234,7 @@ interface Conversation {
 //                      API BASE URL
 // ============================================================
 
+
 // const API_BASE = "http://localhost:8000/api";
 // const API_BASE = process.env.NEXT_PUBLIC_API_BASE!;
 
@@ -246,7 +247,7 @@ const API_BASE =
     ? rawEnv
     : "https://zuzu-backend-api.azurewebsites.net/api";
 
-console.log("API_BASE in production:", API_BASE);
+// console.log("API_BASE in production:", API_BASE);
 
 
 // ============================================================
@@ -341,35 +342,78 @@ function timeAgo(ts: number): string {
   return "just now";
 }
 
+// function parseStudentType(answer: string) {
+//   const t = answer.toLowerCase();
+
+//   const grad = /\bgrad(uate)?\b/.test(t);
+//   const undergrad = /\bundergrad(uate)?\b/.test(t);
+
+//   const international = /\b(international|intl|int'l)\b/.test(t);
+//   const domestic = /\b(domestic|national|dom)\b/.test(t);
+
+//   const level = grad ? "graduate" : undergrad ? "undergraduate" : null;
+//   const origin = international ? "international" : domestic ? "domestic" : null;
+
+//   return { level, origin, valid: !!(level && origin) };
+// }
+
 function parseStudentType(answer: string) {
   const t = answer.toLowerCase();
 
-  const grad = /\bgrad(uate)?\b/.test(t);
+  const phd = /\b(phd|ph\.d|doctorate|doctoral)\b/.test(t);
+  const grad = !phd && /\bgrad(uate)?\b/.test(t);
   const undergrad = /\bundergrad(uate)?\b/.test(t);
 
-  const international = /\b(international|intl|int'l)\b/.test(t);
-  const domestic = /\b(domestic|national|dom)\b/.test(t);
+  const level = phd
+    ? "PhD"
+    : grad
+    ? "graduate"
+    : undergrad
+    ? "undergraduate"
+    : null;
 
-  const level = grad ? "graduate" : undergrad ? "undergraduate" : null;
-  const origin = international ? "international" : domestic ? "domestic" : null;
-
-  return { level, origin, valid: !!(level && origin) };
+  return { level, valid: !!level };
 }
+
+
+// function buildCategoryButtonMessage(parsed: {
+//   level: string | null;
+//   origin: string | null;
+//   valid: boolean;
+// }): { content: string; buttons: ZuzuButton[] } {
+//   const { level, origin, valid } = parsed;
+
+//   const profileText = valid
+//     ? `Great! I've noted that you're a **${origin} ${level}** student.`
+//     : `Thanks for sharing that! I’ll still tailor things as best I can.`;
+
+//   const content =
+//     profileText +
+//     `\n\nHere are the main areas I can help with:`;
+
+//   const buttons: ZuzuButton[] = ZUZU_CATEGORIES.map((cat) => ({
+//     id: `cat-${cat}`,
+//     label: cat,
+//     kind: "category",
+//     category: cat,
+//   }));
+
+//   return { content, buttons };
+// }
 
 function buildCategoryButtonMessage(parsed: {
   level: string | null;
-  origin: string | null;
   valid: boolean;
 }): { content: string; buttons: ZuzuButton[] } {
-  const { level, origin, valid } = parsed;
+  const { level, valid } = parsed;
 
-  const profileText = valid
-    ? `Great! I've noted that you're a **${origin} ${level}** student.`
-    : `Thanks for sharing that! I’ll still tailor things as best I can.`;
+  const profileText =
+    valid && level
+      ? `Great! I've noted that you're a **${level}** student.`
+      : `Thanks for sharing that! I’ll still tailor things as best I can.`;
 
   const content =
-    profileText +
-    `\n\nHere are the main areas I can help with:`;
+    profileText + `\n\nHere are the main areas I can help with:`;
 
   const buttons: ZuzuButton[] = ZUZU_CATEGORIES.map((cat) => ({
     id: `cat-${cat}`,
@@ -380,6 +424,7 @@ function buildCategoryButtonMessage(parsed: {
 
   return { content, buttons };
 }
+
 
 /**
  * Strip ANY trailing "Sources" blocks from the LLM text
@@ -399,6 +444,103 @@ function stripSourcesSection(text: string): string {
   return lines.slice(0, idx).join("\n").trimEnd();
 }
 
+
+// Canonical URLs we want to always show as clean Markdown links
+const WINGS_LOGIN_URL =
+  "https://login.microsoftonline.com/5c46d65d-ee5c-4513-8cd4-af98d15e6833/oauth2/authorize?client_id=00000003-0000-0ff1-ce00-000000000000&response_mode=form_post&response_type=code%20id_token&resource=00000003-0000-0ff1-ce00-000000000000&scope=openid&nonce=880052A85FD9DD18229A1CC2FF030074545BD6DD7E4BB9A1%2DF48A2313E66AB6404CB99269B1419575C5FCE80D868358287090900099E99FBD&redirect_uri=https%3A%2F%2Fraidermailwright.sharepoint.com%2F_forms%2Fdefault.aspx&state=OD0w&claims=%7B%22id_token%22%3A%7B%22xms_cc%22%3A%7B%22values%22%3A%5B%22CP1%22%5D%7D%7D%7D&wsucxt=1&cobrandid=11bd8083-87e0-41b5-bb78-0bc43c8a8e8a&client-request-id=7440dca1-70be-a000-e122-d780c2e117d5";
+
+const ARRIVAL_FORM_URL =
+  "https://i-raider.wright.edu/istart/controllers/client/ClientEngine.cfm?serviceid=EFormArrivalNotification0ServiceProvider";
+
+const VISA_FORM_URL =
+  "https://i-raider.wright.edu/istart/controllers/client/ClientEngine.cfm?serviceid=EFormCommitmenttoWrightStateUniversity0ServiceProvider";
+
+const SEVIS_FEE_URL = "https://www.fmjfee.com";
+
+const TEMP_HOUSING_URL =
+  "https://www.extendedstayamerica.com/corporate/?corpaccount=1382";
+
+// One config array so it's easy to add more later
+const LINK_MAPPINGS: {
+  name: string;
+  // something unique we can regex-match even if the LLM mangles query params
+  basePattern: RegExp;
+  canonicalUrl: string;
+  label: string;
+}[] = [
+  {
+    name: "wings",
+    basePattern:
+      /https:\/\/login\.microsoftonline\.com\/5c46d65d-ee5c-4513-8cd4-af98d15e6833[^\s)]*/gi,
+    canonicalUrl: WINGS_LOGIN_URL,
+    label: "WINGS login",
+  },
+  {
+    name: "arrival",
+    basePattern:
+      /https:\/\/i-raider\.wright\.edu\/istart\/controllers\/client\/ClientEngine\.cfm\?serviceid=EFormArrivalNotification0ServiceProvider[^\s)]*/gi,
+    canonicalUrl: ARRIVAL_FORM_URL,
+    label: "Arrival Notification Form",
+  },
+  {
+    name: "visa",
+    basePattern:
+      /https:\/\/i-raider\.wright\.edu\/istart\/controllers\/client\/ClientEngine\.cfm\?serviceid=EFormCommitmenttoWrightStateUniversity0ServiceProvider[^\s)]*/gi,
+    canonicalUrl: VISA_FORM_URL,
+    label:
+      "Visa Information / Commitment to Wright State University form",
+  },
+  {
+    name: "sevis",
+    basePattern: /https:\/\/www\.fmjfee\.com[^\s)]*/gi,
+    canonicalUrl: SEVIS_FEE_URL,
+    label: "Pay SEVIS I-901 fee",
+  },
+  {
+    name: "tempHousing",
+    basePattern:
+      /https:\/\/www\.extendedstayamerica\.com\/corporate\/\?corpaccount=1382[^\s)]*/gi,
+    canonicalUrl: TEMP_HOUSING_URL,
+    label: "Extended Stay America corporate rate",
+  },
+];
+
+// Generic normalizer: for each known URL, collapse messy versions
+// and wrap them in a nice Markdown link [label](url)
+function normalizeAllLinks(text: string): string {
+  if (!text) return text;
+
+  let out = text;
+
+  for (const mapping of LINK_MAPPINGS) {
+    const { basePattern, canonicalUrl, label } = mapping;
+
+    // 1) Replace any variant with the canonical URL
+    out = out.replace(basePattern, canonicalUrl);
+
+    // 2) If canonical URL is present but not already in a Markdown link,
+    //    wrap it as [label](canonicalUrl)
+    if (out.includes(canonicalUrl)) {
+      const alreadyLinked = new RegExp(
+        `\\[${label.replace(/\s+/g, "\\s+")}\\]\\(${canonicalUrl.replace(
+          /[-/\\^$*+?.()|[\]{}]/g,
+          "\\$&"
+        )}\\)`,
+        "i"
+      ).test(out);
+
+      if (!alreadyLinked) {
+        out = out.replace(
+          canonicalUrl,
+          `[${label}](${canonicalUrl})`
+        );
+      }
+    }
+  }
+
+  return out;
+}
+
 // ============================================================
 //               INITIAL BOT MESSAGE
 // ============================================================
@@ -406,7 +548,7 @@ function stripSourcesSection(text: string): string {
 const INITIAL_BOT_MESSAGE = `
 Hi! I'm **ZUZU** 👋 your onboarding guide for Wright State University 😊  
 
-Are you a **graduate or undergraduate** student, and are you **international or domestic/national**?
+Are you an **undergraduate**, **graduate**, or **PhD** student?
 `.trim();
 
 // ============================================================
@@ -477,10 +619,35 @@ function ZuzuApp() {
   const bootRef = useRef(false);
 
   const [adminKey, setAdminKey] = useState<string | null>(null);
+  const [studentLevel, setStudentLevel] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConvo?.messages, isTyping]);
+
+  // useEffect(() => {
+  //   if (bootRef.current) return;
+  //   bootRef.current = true;
+
+  //   if (typeof window === "undefined") return;
+
+  //   try {
+  //     const stored = localStorage.getItem("zuzu_convos");
+  //     if (stored) {
+  //       const parsed = JSON.parse(stored) as Conversation[];
+  //       if (parsed.length > 0) {
+  //         setConvos(parsed);
+  //         setActiveId(parsed[0].id);
+  //         return;
+  //       }
+  //     }
+  //   } catch {
+  //     // ignore
+  //   }
+
+  //   createNewConversation(true);
+  // }, []);
+
 
   useEffect(() => {
     if (bootRef.current) return;
@@ -495,6 +662,10 @@ function ZuzuApp() {
         if (parsed.length > 0) {
           setConvos(parsed);
           setActiveId(parsed[0].id);
+
+          // ✅ If we’re restoring from history, assume the intro already ran.
+          setIntroState("done");
+          setFlowStep("chat");
           return;
         }
       }
@@ -502,8 +673,10 @@ function ZuzuApp() {
       // ignore
     }
 
+    // No stored conversations -> fresh chat, intro is needed
     createNewConversation(true);
   }, []);
+
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -630,10 +803,18 @@ function ZuzuApp() {
     setIsTyping(true);
 
     // 🔹 NEW: add soft context to help LLM remember what topic we're on
+    // const effectiveText =
+    //   currentContext && currentContext.trim().length > 0
+    //     ? `${text}\n\n(Context: this question is about "${currentContext}".)`
+    //     : text;
+    const profilePrefix = studentLevel
+      ? `Student profile: ${studentLevel} student.\n\n`
+      : "";
+
     const effectiveText =
       currentContext && currentContext.trim().length > 0
-        ? `${text}\n\n(Context: this question is about "${currentContext}".)`
-        : text;
+        ? `${profilePrefix}${text}\n\n(Context: this question is about "${currentContext}".)`
+        : `${profilePrefix}${text}`;
 
     let reply = "";
     let sources: Message["sources"] = [];
@@ -642,7 +823,7 @@ function ZuzuApp() {
       reply = res.reply;
       sources = res.sources;
     } catch {
-      reply = "Sorry — backend error.";
+      reply = "Sorry - I am unable to provide you with an answer at this moment.";
       sources = [];
     }
     setIsTyping(false);
@@ -682,18 +863,32 @@ function ZuzuApp() {
       )
     );
 
+    // const parsed = parseStudentType(text);
+
+    // // 🔹 NEW: if we can detect profile, use it as a temporary title
+    // // (e.g., "international graduate") so chats aren't stuck as "New Conversation"
+    // if (parsed.valid) {
+    //   const levelLabel = parsed.level ?? "";
+    //   const originLabel = parsed.origin ?? "";
+    //   const prettyTitle = `${originLabel} ${levelLabel}`.trim();
+    //   if (prettyTitle) {
+    //     updateConversationTitle(activeConvo.id, prettyTitle);
+    //   }
+    // }
+
     const parsed = parseStudentType(text);
 
-    // 🔹 NEW: if we can detect profile, use it as a temporary title
-    // (e.g., "international graduate") so chats aren't stuck as "New Conversation"
-    if (parsed.valid) {
-      const levelLabel = parsed.level ?? "";
-      const originLabel = parsed.origin ?? "";
-      const prettyTitle = `${originLabel} ${levelLabel}`.trim();
-      if (prettyTitle) {
-        updateConversationTitle(activeConvo.id, prettyTitle);
-      }
+// If we can detect profile, use it as a temporary title
+// (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
+    if (parsed.valid && parsed.level) {
+      const prettyTitle =
+        parsed.level === "PhD"
+          ? "PhD student"
+          : `${parsed.level} student`;
+      updateConversationTitle(activeConvo.id, prettyTitle);
+      setStudentLevel(parsed.level);
     }
+
 
     if (!parsed.valid && introState === "waiting_first") {
       const retryBot: Message = {
@@ -701,9 +896,7 @@ function ZuzuApp() {
         role: "bot",
         content:
           "I didn’t quite catch that, and I definitely want to help you with it. 💛\n\n" +
-          "Before I give you a detailed answer, could you please tell me:\n\n" +
-          "• Are you a **graduate** or **undergraduate** student?\n" +
-          "• Are you **international** or **domestic/national**?\n\n" +
+          "Before I give you a detailed answer, could you please tell me whether you are an **undergraduate**, **graduate**, or **PhD** student?\n\n" +
           "This helps me give the most accurate information for your situation.",
         ts: Date.now(),
       };
@@ -720,10 +913,17 @@ function ZuzuApp() {
       return;
     }
 
-    const { level, origin } = parsed;
-    const summaryForLLM = parsed.valid
-      ? `Student profile: ${level} student, ${origin}.`
-      : "Student profile: not clearly specified.";
+    // const { level } = parsed;
+    // const summaryForLLM = parsed.valid
+    //   ? `Student profile: ${level} student, ${origin}.`
+    //   : "Student profile: not clearly specified.";
+
+    const { level } = parsed;
+    const summaryForLLM =
+      parsed.valid && level
+        ? `Student profile: ${level} student.`
+        : "Student profile: not clearly specified.";
+
 
     setIntroState("done");
     setFlowStep("chat");
@@ -757,19 +957,55 @@ function ZuzuApp() {
     }
   }
 
+  // function sendMessage() {
+  //   const t = input.trim();
+  //   if (!t) return;
+
+    // if (introState !== "done") {
+    //   setInput("");
+    //   void handleIntroAnswer(t);
+    //   return;
+    // }
+
+  //   if (introState !== "done") {
+  // // Only allow intro ONCE — if introState is "done", NEVER go back
+  //     if (introState === "waiting_first" || introState === "waiting_retry") {
+  //       setInput("");
+  //       void handleIntroAnswer(t);
+  //       return;
+  //     }
+  //   }
+
+
+  //   setInput("");
+  //   void sendMessageWithText(t);
+  // }
+    
   function sendMessage() {
     const t = input.trim();
-    if (!t) return;
+    if (!t || !activeConvo) return;
 
-    if (introState !== "done") {
+    // Check if this conversation already has normal user messages
+    const hasUserMessages =
+      activeConvo.messages.filter((m) => m.role === "user").length > 0;
+
+    if (introState !== "done" && !hasUserMessages) {
+      // ✅ FIRST-EVER user message in this convo -> treat as intro
       setInput("");
       void handleIntroAnswer(t);
       return;
     }
 
+    // ✅ If we somehow ended up with introState != "done" but we already
+    // have user messages, force intro to done and treat this as normal chat.
+    if (introState !== "done" && hasUserMessages) {
+      setIntroState("done");
+    }
+
     setInput("");
     void sendMessageWithText(t);
   }
+
 
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -803,9 +1039,11 @@ function ZuzuApp() {
 
     const maybeUpdateTitle = (text: string) => {
       const title = activeConvo.title;
-      const looksLikeProfile =
-        /international|domestic/i.test(title) &&
-        /graduate|undergraduate|grad|undergrad/i.test(title);
+      // const looksLikeProfile =
+      //   /international|domestic/i.test(title) &&
+      //   /graduate|undergraduate|grad|undergrad/i.test(title);
+      const looksLikeProfile =/undergraduate|graduate|phd|grad|undergrad/i.test(title);
+
 
       // 🔹 Allow overriding "New Conversation" **and** simple profile titles
       if (!hasUserMessages || title === "New Conversation" || looksLikeProfile) {
@@ -1086,10 +1324,20 @@ function ZuzuApp() {
         <div className="flex-1 overflow-y-auto px-10 py-8 space-y-6">
           {activeConvo?.messages.map((m) => {
             const isUser = m.role === "user";
-            const contentToShow =
+            // const contentToShow =
+            //   !isUser && m.sources && m.sources.length > 0
+            //     ? stripSourcesSection(m.content)
+            //     : m.content;
+            const rawContent =
               !isUser && m.sources && m.sources.length > 0
                 ? stripSourcesSection(m.content)
                 : m.content;
+
+            // ✅ apply link normalization for ALL bot messages
+            const contentToShow = !isUser
+              ? normalizeAllLinks(rawContent)
+              : rawContent;
+
 
             return (
               <div
@@ -1122,12 +1370,29 @@ function ZuzuApp() {
                     ) : (
                       <>
                         <div className={`prose max-w-none ${THEME.textMain}`}>
-                          <ReactMarkdown
+                          {/* <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             rehypePlugins={[rehypeSanitize]}
                           >
                             {contentToShow}
+                          </ReactMarkdown> */}
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeSanitize]}
+                            components={{
+                              a: ({ node, ...props }) => (
+                                <a
+                                  {...props}
+                                  className="text-blue-600 underline font-medium hover:text-blue-800"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                />
+                              ),
+                            }}
+                          >
+                            {contentToShow}
                           </ReactMarkdown>
+
                         </div>
 
                         {m.buttons && m.buttons.length > 0 && (
@@ -1515,10 +1780,43 @@ export function AdminDashboard({
   }
 
   const totals = d.totals || {};
-  const byDay = d.by_day || [];
+  // const byDay = d.by_day || [];
+  // Accept both snake_case and camelCase, fallback to empty.
+  const rawByDay = d.by_day || d.byDay || [];  
+
   const topCategories = d.top_categories || [];
   const consistencyScore = d.consistencyScore ?? 0;
   const consistencyByCategory = d.consistencyByCategory || {};
+
+  // Normalize by_day into uniform [{ date: "YYYY-MM-DD", count: number }]
+const byDay = Array.isArray(rawByDay)
+  ? rawByDay
+      .map((row: any) => {
+        const date =
+          row.date ||
+          row.day ||
+          (typeof row.created_at === "string"
+            ? row.created_at.slice(0, 10)
+            : null) ||
+          row.dt ||
+          row.d;
+
+        const count =
+          row.count ??
+          row.total ??
+          row.questions ??
+          row.num_questions ??
+          0;
+
+        if (!date) return null;
+        return {
+          date,
+          count: Number(count) || 0,
+        };
+      })
+      .filter(Boolean)
+  : [];
+
 
   const CATEGORY_COLORS = [
     "#FF8A00",
@@ -1677,48 +1975,49 @@ export function AdminDashboard({
             })}
           </div>
         </div>
-
         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
-          <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
-            Usage (last 7 days)
-          </h2>
+            <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
+              Usage (last 7 days)
+            </h2>
 
-          <div className="flex gap-1 items-end h-40">
-            {byDay.length === 0 ? (
-              <p className={`${THEME.textSub} text-xs`}>
-                No usage data yet.
-              </p>
-            ) : (
-              byDay.map((row: any) => {
-                const maxCount = Math.max(
-                  ...byDay.map((x: any) => x.count)
-                );
-                const pct = maxCount
-                  ? (row.count / maxCount) * 100
-                  : 0;
+            <div className="flex gap-1 items-end h-40">
+              {byDay.length === 0 ? (
+                <p className={`${THEME.textSub} text-xs`}>
+                  No usage data yet.
+                </p>
+              ) : (
+                (() => {
+                  const maxCount =
+                    Math.max(...byDay.map((x: any) => x.count)) || 0;
 
-                return (
-                  <div
-                    key={row.date}
-                    className="flex-1 flex flex-col items-center"
-                  >
-                    <div
-                      className="w-full bg-[#FF8A00] rounded-t-full"
-                      style={{ height: `${pct}%` }}
-                    />
-                    <span className="text-[10px] text-[#A06A32] mt-1">
-                      {row.date.slice(5)}
-                    </span>
-                  </div>
-                );
-              })
-            )}
+                  return byDay.map((row: any) => {
+                    const pct = maxCount
+                      ? (row.count / maxCount) * 100
+                      : 0;
+
+                    return (
+                      <div
+                        key={row.date}
+                        className="flex-1 flex flex-col items-center"
+                      >
+                        <div
+                          className="w-full bg-[#FF8A00] rounded-t-full"
+                          style={{ height: `${pct}%` }}
+                        />
+                        <span className="text-[10px] text-[#A06A32] mt-1">
+                          {row.date.slice(5)}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()
+              )}
+            </div>
           </div>
-        </div>
-      </main>
-    </div>
-  );
-}
+        </main>
+      </div>
+    );
+    }
 
 /* ------------------------------------------------------------
    DEFAULT EXPORT FOR NEXT.JS
