@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # ===================================================================
 # 🔹 FETCH BASIC NUMBERS (totals, categories, weekly usage)
 # ===================================================================
+
 def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
     """
     Basic aggregates for analytics:
@@ -60,19 +61,20 @@ def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
             # ---- Usage by day (last 7 days, only user messages) ----
             by_day_rows = conn.execute(
                 f"""
-                SELECT created_at::date AS d, COUNT(*)
+                SELECT DATE(created_at) AS day, COUNT(*) AS count
                 FROM message_events
                 WHERE role = 'user'
-                  AND created_at >= CURRENT_DATE - INTERVAL '7 days'
+                  AND created_at >= NOW() - INTERVAL '7 days'
                   {where}
-                GROUP BY created_at::date
-                ORDER BY d
+                GROUP BY DATE(created_at)
+                ORDER BY day
                 """,
                 params,
             ).fetchall()
 
             by_day = [
-                {"date": r[0].isoformat(), "count": int(r[1])} for r in by_day_rows
+                {"date": row[0].isoformat(), "count": int(row[1])}
+                for row in by_day_rows
             ]
 
             # ---- Top categories ----
@@ -108,7 +110,6 @@ def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
 
     except OperationalError as e:
         logger.exception("Analytics DB error: %s", e)
-        # Return a safe empty structure so the app never dies
         return {
             "chat_ids": [],
             "totals": {
@@ -120,7 +121,9 @@ def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
             "by_day": [],
         }
     except Exception as e:
-        logger.exception("Unexpected error in _fetch_basic_aggregates: %s", e)
+        logger.exception(
+            "Unexpected error in _fetch_basic_aggregates: %s", e
+        )
         return {
             "chat_ids": [],
             "totals": {
@@ -132,6 +135,8 @@ def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
             "by_day": [],
         }
 
+    logger.info("Analytics by_day rows: %d", len(by_day))
+
     return {
         "chat_ids": chat_ids,
         "totals": {
@@ -142,6 +147,133 @@ def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
         "top_categories": top_categories,
         "by_day": by_day,
     }
+
+# def _fetch_basic_aggregates(device_id: Optional[str]) -> Dict[str, Any]:
+#     """
+#     Basic aggregates for analytics:
+#       - totals: { totalUsers, totalQuestions, totalPiiEvents }
+#       - top_categories: [ { category, count }, ... ]
+#       - by_day: [ { date: "YYYY-MM-DD", count }, ... ]
+#       - chat_ids: [ ... ] used for consistency scoring
+#     """
+#     where = ""
+#     params: List[Any] = []
+
+#     if device_id is not None:
+#         where = " AND device_id = %s"
+#         params.append(device_id)
+
+#     try:
+#         with pool.connection() as conn:
+#             # ---- Total distinct users (devices) ----
+#             row = conn.execute(
+#                 "SELECT COUNT(DISTINCT device_id) FROM chats"
+#             ).fetchone()
+#             total_users = int(row[0]) if row is not None else 0
+
+#             # ---- Total questions (user messages) ----
+#             row = conn.execute(
+#                 f"""
+#                 SELECT COUNT(*)
+#                 FROM message_events
+#                 WHERE role = 'user'
+#                 {where}
+#                 """,
+#                 params,
+#             ).fetchone()
+#             total_questions = int(row[0]) if row is not None else 0
+
+#             # ---- PII events (global count) ----
+#             row = conn.execute(
+#                 "SELECT COUNT(*) FROM pii_events"
+#             ).fetchone()
+#             pii_events = int(row[0]) if row is not None else 0
+
+#             # ---- Usage by day (last 7 days, only user messages) ----
+#             by_day_rows = conn.execute(
+#                 f"""
+#                 SELECT created_at::date AS d, COUNT(*)
+#                 FROM message_events
+#                 WHERE role = 'user'
+#                   AND created_at >= CURRENT_DATE - INTERVAL '7 days'
+#                   {where}
+#                 GROUP BY created_at::date
+#                 ORDER BY d
+#                 """,
+#                 params,
+#             ).fetchall()
+
+#             by_day = [
+#                 {"date": r[0].isoformat(), "count": int(r[1])} for r in by_day_rows
+#             ]
+
+#             # ---- Top categories ----
+#             cat_rows = conn.execute(
+#                 f"""
+#                 SELECT category, COUNT(*)
+#                 FROM message_events
+#                 WHERE role = 'user'
+#                 {where}
+#                 GROUP BY category
+#                 ORDER BY COUNT(*) DESC
+#                 """,
+#                 params,
+#             ).fetchall()
+
+#             top_categories: List[Dict[str, Any]] = []
+#             for cat, cnt in cat_rows:
+#                 name = cat or "Other Inquiries"
+#                 top_categories.append({"category": name, "count": int(cnt)})
+
+#             # ---- Chat IDs used for consistency calculations ----
+#             chat_rows = conn.execute(
+#                 f"""
+#                 SELECT DISTINCT chat_id
+#                 FROM message_events
+#                 WHERE role = 'user'
+#                 {where}
+#                 """,
+#                 params,
+#             ).fetchall()
+
+#             chat_ids = [r[0] for r in chat_rows]
+
+#     except OperationalError as e:
+#         logger.exception("Analytics DB error: %s", e)
+#         # Return a safe empty structure so the app never dies
+#         return {
+#             "chat_ids": [],
+#             "totals": {
+#                 "totalUsers": 0,
+#                 "totalQuestions": 0,
+#                 "totalPiiEvents": 0,
+#             },
+#             "top_categories": [],
+#             "by_day": [],
+#         }
+#     except Exception as e:
+#         logger.exception("Unexpected error in _fetch_basic_aggregates: %s", e)
+#         return {
+#             "chat_ids": [],
+#             "totals": {
+#                 "totalUsers": 0,
+#                 "totalQuestions": 0,
+#                 "totalPiiEvents": 0,
+#             },
+#             "top_categories": [],
+#             "by_day": [],
+#         }
+
+#     return {
+#         "chat_ids": chat_ids,
+#         "totals": {
+#             "totalUsers": total_users,
+#             "totalQuestions": total_questions,
+#             "totalPiiEvents": pii_events,
+#         },
+#         "top_categories": top_categories,
+#         "by_day": by_day,
+#     }
 
 
 # ===================================================================
