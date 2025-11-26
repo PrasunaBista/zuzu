@@ -303,7 +303,7 @@ STYLE REMINDERS:
 async def chat_complete(
     messages: List[Dict[str, str]],
     temperature: float = 0.3,
-    max_tokens: int = 700,
+    max_tokens: int = 1400,
 ) -> str:
     """
     Call Azure OpenAI chat completion with the given messages.
