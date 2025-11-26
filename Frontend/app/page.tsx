@@ -818,10 +818,7 @@ function ZuzuApp() {
       ? `Student profile: ${studentLevel} student.\n\n`
       : "";
 
-    const effectiveText =
-      currentContext && currentContext.trim().length > 0
-        ? `${profilePrefix}${text}\n\n(Context: this question is about "${currentContext}".)`
-        : `${profilePrefix}${text}`;
+    const effectiveText = `${profilePrefix}${text}`;
 
     let reply = "";
     let sources: Message["sources"] = [];
