@@ -320,6 +320,59 @@ def naive_category(text: str) -> str:
 # - Age statements ("I'm 23", "my age is 23")
 
 
+# _PII_REGEXES = [
+#     # US SSN-like: 123-45-6789 or 123456789
+#     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+#     re.compile(r"\b\d{9}\b"),
+
+#     # Phone numbers: +1 555-555-5555, (555) 555-5555, 555-555-5555
+#     re.compile(
+#         r"\b(?:\+?1[\s-]?)?(?:\(\d{3}\)|\d{3})[\s-]?\d{3}[\s-]?\d{4}\b"
+#     ),
+
+#     # Email addresses
+#     re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+
+#     # Credit/debit card-like (very rough)
+#     re.compile(r"\b(?:\d[ -]*?){13,16}\b"),
+
+#     # Address-like (very rough): number + street word
+#     re.compile(
+#         r"\b\d+\s+(?:street|st\.?|avenue|ave\.?|road|rd\.?|lane|ln\.?|drive|dr\.?)\b",
+#         re.IGNORECASE,
+#     ),
+
+#     # Name-like: "my name is <First Last>" or "I am <First Last>"
+#     re.compile(
+#         r"\bmy\s+name\s+is\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b"
+#     ),
+#     re.compile(
+#         r"\b(i\s*am|i'm)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b",
+#         re.IGNORECASE,
+#     ),
+
+#     # Age: "I am 23", "I'm 19 years old"
+#     re.compile(
+#         r"\b(i\s*am|i'm)\s*(\d{1,2})\s*(?:years?\s*old|yrs?\s*old|y/o)?\b",
+#         re.IGNORECASE,
+#     ),
+#     # Age: "my age is 23"
+#     re.compile(
+#         r"\bmy\s+age\s+is\s*(\d{1,2})\b",
+#         re.IGNORECASE,
+#     ),
+# ]
+
+# ---------------- PII DETECTION ----------------
+
+# We treat these as "PII" for ZUZU:
+# - SSN-like numbers
+# - Phone numbers
+# - Email addresses
+# - Card / bank-like numbers
+# - Addresses
+# (we're *not* flagging names/ages for now to avoid false positives)
+
 _PII_REGEXES = [
     # US SSN-like: 123-45-6789 or 123456789
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
@@ -333,7 +386,7 @@ _PII_REGEXES = [
     # Email addresses
     re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
 
-    # Credit/debit card-like (very rough)
+    # Credit/debit / long account-like digit strings (very rough)
     re.compile(r"\b(?:\d[ -]*?){13,16}\b"),
 
     # Address-like (very rough): number + street word
@@ -341,27 +394,8 @@ _PII_REGEXES = [
         r"\b\d+\s+(?:street|st\.?|avenue|ave\.?|road|rd\.?|lane|ln\.?|drive|dr\.?)\b",
         re.IGNORECASE,
     ),
-
-    # Name-like: "my name is <First Last>" or "I am <First Last>"
-    re.compile(
-        r"\bmy\s+name\s+is\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b"
-    ),
-    re.compile(
-        r"\b(i\s*am|i'm)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b",
-        re.IGNORECASE,
-    ),
-
-    # Age: "I am 23", "I'm 19 years old"
-    re.compile(
-        r"\b(i\s*am|i'm)\s*(\d{1,2})\s*(?:years?\s*old|yrs?\s*old|y/o)?\b",
-        re.IGNORECASE,
-    ),
-    # Age: "my age is 23"
-    re.compile(
-        r"\bmy\s+age\s+is\s*(\d{1,2})\b",
-        re.IGNORECASE,
-    ),
 ]
+
 
 
 def detect_pii_spans(text: str) -> List[tuple]:

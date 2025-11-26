@@ -826,6 +826,7 @@ function ZuzuApp() {
     let reply = "";
     let sources: Message["sources"] = [];
     try {
+      console.log("sending to backend:", effectiveText);
       const res = await sendToBackend(activeConvo.id, effectiveText);
       reply = res.reply;
       sources = res.sources;
@@ -1001,30 +1002,46 @@ function ZuzuApp() {
   //   void sendMessageWithText(t);
   // }
     
+  // function sendMessage() {
+  //   const t = input.trim();
+  //   if (!t || !activeConvo) return;
+
+  //   // Check if this conversation already has normal user messages
+  //   const hasUserMessages =
+  //     activeConvo.messages.filter((m) => m.role === "user").length > 0;
+
+  //   if (introState !== "done" && !hasUserMessages) {
+  //     // ✅ FIRST-EVER user message in this convo -> treat as intro
+  //     setInput("");
+  //     void handleIntroAnswer(t);
+  //     return;
+  //   }
+
+  //   // ✅ If we somehow ended up with introState != "done" but we already
+  //   // have user messages, force intro to done and treat this as normal chat.
+  //   if (introState !== "done" && hasUserMessages) {
+  //     setIntroState("done");
+  //   }
+
+  //   setInput("");
+  //   void sendMessageWithText(t);
+  // }
+
   function sendMessage() {
     const t = input.trim();
     if (!t || !activeConvo) return;
 
-    // Check if this conversation already has normal user messages
-    const hasUserMessages =
-      activeConvo.messages.filter((m) => m.role === "user").length > 0;
-
-    if (introState !== "done" && !hasUserMessages) {
-      // ✅ FIRST-EVER user message in this convo -> treat as intro
+    if (introState !== "done") {
       setInput("");
       void handleIntroAnswer(t);
       return;
     }
 
-    // ✅ If we somehow ended up with introState != "done" but we already
-    // have user messages, force intro to done and treat this as normal chat.
-    if (introState !== "done" && hasUserMessages) {
-      setIntroState("done");
-    }
-
+    // introState === "done" here
     setInput("");
     void sendMessageWithText(t);
   }
+
 
 
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {

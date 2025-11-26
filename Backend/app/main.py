@@ -321,12 +321,12 @@ async def chat_api(
     # 4) Memory
     recent = await get_last_messages(
         chat_id,
-        limit=int(os.getenv("MEMORY_LAST_TURNS", "6")),
+        limit=int(os.getenv("MEMORY_LAST_TURNS", "8")),
     )
 
     summary: Optional[str] = None
     if os.getenv("MEMORY_SUMMARIZE", "true").lower() == "true":
-        if len(recent) >= int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "8")):
+        if len(recent) >= int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "4")):
             try:
                 summary = await summarize_history(recent)
             except Exception:
