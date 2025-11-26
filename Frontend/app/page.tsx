@@ -1722,6 +1722,374 @@ function BarRow({
   );
 }
 
+// export function AdminDashboard({
+//   adminKey,
+//   onBack,
+// }: {
+//   adminKey: string;
+//   onBack: () => void;
+// }) {
+//   const [loading, setLoading] = useState(true);
+//   const [d, setD] = useState<any | null>(null);
+//   const [error, setError] = useState<string | null>(null);
+
+//   useEffect(() => {
+//     (async () => {
+//       try {
+//         // const json = await fetchDashboard(adminKey);
+//         // setD(json);
+//         // JUST ADDDED
+//         const json = await fetchDashboard(adminKey);
+//         console.log("analytics raw:", json);
+//         setD(json);
+//          // JUST ADDDED
+
+//       } catch (err: any) {
+//         console.error("Failed to load analytics", err);
+//         setError("Failed to load analytics from server.");
+//       } finally {
+//         setLoading(false);
+//       }
+//     })();
+//   }, [adminKey]);
+
+//   if (loading) {
+//     return (
+//       <div
+//         className={`absolute inset-0 ${THEME.appBg} flex items-center justify-center`}
+//       >
+//         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] px-6 py-4 shadow">
+//           <p className={`${THEME.textMain} text-sm`}>Loading analytics…</p>
+//         </div>
+//       </div>
+//     );
+//   }
+
+//   if (error || !d) {
+//     return (
+//       <div
+//         className={`absolute inset-0 ${THEME.appBg} flex items-center justify-center`}
+//       >
+//         <div className="rounded-2xl border border-red-300 bg-red-50 px-6 py-4 shadow">
+//           <p className="text-sm text-red-700">
+//             {error ?? "No analytics data."}
+//           </p>
+//           <button
+//             onClick={onBack}
+//             className="mt-3 px-4 py-2 rounded-full bg-[#FF8A00] hover:bg-[#FF9E1E] text-white text-xs"
+//           >
+//             Back to chat
+//           </button>
+//         </div>
+//       </div>
+//     );
+//   }
+
+//   const totals = d.totals || {};
+//   // const byDay = d.by_day || [];
+//   // Accept both snake_case and camelCase, fallback to empty.
+//   // const rawByDay = d.by_day || d.byDay || [];  
+
+//   const topCategories = d.top_categories || [];
+//   const consistencyScore = d.consistencyScore ?? 0;
+//   const consistencyByCategory = d.consistencyByCategory || {};
+
+//   // Normalize by_day into uniform [{ date: "YYYY-MM-DD", count: number }]
+// // const byDay = Array.isArray(rawByDay)
+// //   ? rawByDay
+// //       .map((row: any) => {
+// //         const date =
+// //           row.date ||
+// //           row.day ||
+// //           (typeof row.created_at === "string"
+// //             ? row.created_at.slice(0, 10)
+// //             : null) ||
+// //           row.dt ||
+// //           row.d;
+
+// //         const count =
+// //           row.count ??
+// //           row.total ??
+// //           row.questions ??
+// //           row.num_questions ??
+// //           0;
+
+// //         if (!date) return null;
+// //         return {
+// //           date,
+// //           count: Number(count) || 0,
+// //         };
+// //       })
+// //       .filter(Boolean)
+// //   : [];
+
+
+// // Normalize by_day into uniform [{ date: "YYYY-MM-DD", count: number }]
+//   const rawByDay = d.by_day || d.byDay || [];
+ 
+
+//   const byDay = Array.isArray(rawByDay)
+//     ? rawByDay
+//         .map((row: any) => {
+//           const date =
+//             row.date ||
+//             row.day ||
+//             (typeof row.created_at === "string"
+//               ? row.created_at.slice(0, 10)
+//               : null) ||
+//             row.dt ||
+//             row.d ||
+//             row.date_str ||
+//             row.date_string;
+
+//           let count = 0;
+//           for (const [key, value] of Object.entries(row)) {
+//             if (
+//               /count|total|questions|num_questions|question_count|usage/i.test(
+//                 key
+//               ) &&
+//               value != null
+//             ) {
+//               const n =
+//                 typeof value === "number" ? value : Number(value as any);
+//               if (!Number.isNaN(n)) {
+//                 count = n;
+//                 break;
+//               }
+//             }
+//           }
+
+//           if (!date) return null;
+//           return { date, count };
+//         })
+//         .filter(Boolean)
+//     : [];
+
+//   console.log("normalized byDay:", byDay);
+ 
+
+//   const CATEGORY_COLORS = [
+//     "#FF8A00",
+//     "#FFC107",
+//     "#7C3AED",
+//     "#0EA5E9",
+//     "#22C55E",
+//     "#16A34A",
+//     "#F97316",
+//     "#EC4899",
+//     "#10B981",
+//     "#6366F1",
+//     "#F59E0B",
+//     "#3B82F6",
+//   ];
+
+//   const countsByCat: Record<string, number> = {};
+//   topCategories.forEach((c: any) => {
+//     countsByCat[c.category] = c.count;
+//   });
+
+//   const chartData = ZUZU_CATEGORIES.map((name, idx) => ({
+//     label: name,
+//     value: countsByCat[name] ?? 0,
+//     color: CATEGORY_COLORS[idx % CATEGORY_COLORS.length],
+//   }));
+
+//   return (
+//     <div className={`absolute inset-0 ${THEME.appBg} overflow-auto`}>
+//       <header
+//         className={`p-5 border-b ${THEME.sidebarBorder} ${THEME.sidebarBg}`}
+//       >
+//         <div className="flex items-center gap-3">
+//           <button
+//             onClick={onBack}
+//             className="p-2 rounded-full border border-[#F3C58C] bg-[#FFEFD9] hover:bg-white transition"
+//           >
+//             <ArrowLeft size={18} className={THEME.textSub} />
+//           </button>
+
+//           <div>
+//             <h1 className={`text-2xl font-extrabold ${THEME.brand}`}>
+//               ZUZU Admin
+//             </h1>
+//             <p className={`text-xs mt-1 ${THEME.textSub}`}>
+//               Analytics &amp; Insights
+//             </p>
+//           </div>
+//         </div>
+//       </header>
+
+//       <main className="p-5 space-y-6">
+//         <div className="grid gap-4 md:grid-cols-4">
+//           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+//             <p className="text-[11px] font-semibold text-[#A06A32]">
+//               Total Users
+//             </p>
+//             <p className="text-3xl font-bold">
+//               {totals.totalUsers ?? 0}
+//             </p>
+//           </div>
+
+//           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+//             <p className="text-[11px] font-semibold text-[#A06A32]">
+//               Total Questions
+//             </p>
+//             <p className="text-3xl font-bold">
+//               {totals.totalQuestions ?? 0}
+//             </p>
+//           </div>
+
+//           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+//             <p className="text-[11px] font-semibold text-[#A06A32]">
+//               PII Alerts
+//             </p>
+//             <p className="text-3xl font-bold">
+//               {totals.totalPiiEvents ?? 0}
+//             </p>
+//           </div>
+
+//           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+//             <p className="text-[11px] font-semibold text-[#A06A32]">
+//               Overall Consistency
+//             </p>
+//             <p className="text-3xl font-bold">
+//               {Math.round(consistencyScore)}%
+//             </p>
+//           </div>
+//         </div>
+
+//         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+//           <div className="flex items-center gap-2 mb-4">
+//             <PieChartIcon size={18} className={THEME.textSub} />
+//             <h2 className={`text-sm font-semibold ${THEME.textMain}`}>
+//               Questions by Category
+//             </h2>
+//           </div>
+
+//           <div className="flex flex-col items-center gap-6 md:flex-row md:items-center md:justify-center">
+//             <div className="w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
+//               <ResponsiveContainer width="100%" height="100%">
+//                 <RePieChart>
+//                   <Pie
+//                     data={chartData}
+//                     dataKey="value"
+//                     nameKey="label"
+//                     cx="50%"
+//                     cy="50%"
+//                     outerRadius="80%"
+//                     innerRadius={0}
+//                     paddingAngle={1}
+//                     isAnimationActive={false}
+//                   >
+//                     {chartData.map((slice) => (
+//                       <Cell key={slice.label} fill={slice.color} />
+//                     ))}
+//                   </Pie>
+//                 </RePieChart>
+//               </ResponsiveContainer>
+//             </div>
+
+//             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+//               {chartData.map((slice) => (
+//                 <div key={slice.label} className="flex items-center gap-2">
+//                   <span
+//                     className="inline-block w-3 h-3 rounded-full"
+//                     style={{ backgroundColor: slice.color }}
+//                   />
+//                   <span className={THEME.textMain}>{slice.label}</span>
+//                 </div>
+//               ))}
+//             </div>
+//           </div>
+//         </div>
+
+//         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+//           <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
+//             Consistency by Category
+//           </h2>
+
+//           <div className="space-y-3">
+//             {Object.entries(consistencyByCategory).map(([cat, v]) => {
+//               const idx = ZUZU_CATEGORIES.indexOf(cat);
+//               const color =
+//                 idx >= 0 ? CATEGORY_COLORS[idx] : "#FF8A00";
+
+//               return (
+//                 <BarRow
+//                   key={cat}
+//                   label={cat}
+//                   value={Number(v)}
+//                   max={100}
+//                   color={color}
+//                 />
+//               );
+//             })}
+//           </div>
+//         </div>
+//         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+//             <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
+//               Usage (last 7 days)
+//             </h2>
+
+//             <div className="flex gap-1 items-end h-40">
+//               {byDay.length === 0 ? (
+//                 <p className={`${THEME.textSub} text-xs`}>
+//                   No usage data yet.
+//                 </p>
+//               ) : (
+//                 (() => {
+//                   const maxCount =
+//                     Math.max(...byDay.map((x: any) => x.count)) || 0;
+
+//                   return byDay.map((row: any) => {
+//                     // const pct = maxCount
+//                     //   ? (row.count / maxCount) * 100
+//                     //   : 0;
+//                     const pct = maxCount
+//                       ? (row.count / maxCount) * 90 + 10 // 10–100% instead of 0–100%
+//                       : 0;
+
+
+//                     return (
+//                       // <div
+//                       //   key={row.date}
+//                       //   className="flex-1 flex flex-col items-center"
+//                       <div
+//                           key={row.date}
+//                           className="flex-1 min-w-[10px] flex flex-col items-center"
+//                         >
+
+                  
+//                         <div
+//                           className="w-full bg-[#FF8A00] rounded-t-full"
+//                           style={{ height: `${pct}%` }}
+//                         />
+//                         <span className="text-[10px] text-[#A06A32] mt-1">
+//                           {row.date.slice(5)}
+//                         </span>
+//                       </div>
+//                     );
+//                   });
+//                 })()
+//               )}
+//             </div>
+//           </div>
+//         </main>
+//       </div>
+//     );
+//     }
+
+// /* ------------------------------------------------------------
+//    DEFAULT EXPORT FOR NEXT.JS
+// ------------------------------------------------------------ */
+
+// const Page: React.FC = () => {
+//   return <ZuzuApp />;
+// };
+
+// export default Page;
+
+
+
 export function AdminDashboard({
   adminKey,
   onBack,
@@ -1737,6 +2105,7 @@ export function AdminDashboard({
     (async () => {
       try {
         const json = await fetchDashboard(adminKey);
+        console.log("analytics raw:", json);
         setD(json);
       } catch (err: any) {
         console.error("Failed to load analytics", err);
@@ -1780,42 +2149,44 @@ export function AdminDashboard({
   }
 
   const totals = d.totals || {};
-  // const byDay = d.by_day || [];
-  // Accept both snake_case and camelCase, fallback to empty.
-  const rawByDay = d.by_day || d.byDay || [];  
-
+  const rawByDay = d.by_day || d.byDay || [];
   const topCategories = d.top_categories || [];
   const consistencyScore = d.consistencyScore ?? 0;
   const consistencyByCategory = d.consistencyByCategory || {};
 
-  // Normalize by_day into uniform [{ date: "YYYY-MM-DD", count: number }]
-const byDay = Array.isArray(rawByDay)
-  ? rawByDay
-      .map((row: any) => {
-        const date =
-          row.date ||
-          row.day ||
-          (typeof row.created_at === "string"
-            ? row.created_at.slice(0, 10)
-            : null) ||
-          row.dt ||
-          row.d;
+  // 🔹 Normalize byDay
+  const byDay = Array.isArray(rawByDay)
+    ? rawByDay
+        .map((row: any) => {
+          const date =
+            row.date ||
+            row.day ||
+            (typeof row.created_at === "string"
+              ? row.created_at.slice(0, 10)
+              : null) ||
+            row.dt ||
+            row.d;
 
-        const count =
-          row.count ??
-          row.total ??
-          row.questions ??
-          row.num_questions ??
-          0;
+          const count =
+            row.count ??
+            row.total ??
+            row.questions ??
+            row.num_questions ??
+            0;
 
-        if (!date) return null;
-        return {
-          date,
-          count: Number(count) || 0,
-        };
-      })
-      .filter(Boolean)
-  : [];
+          if (!date) return null;
+          return {
+            date,
+            count: Number(count) || 0,
+          };
+        })
+        .filter(Boolean)
+    : [];
+  const usageData = byDay;
+  const maxUsage = usageData.length
+    ? Math.max(...usageData.map((d) => d.count))
+    : 0;
+
 
 
   const CATEGORY_COLORS = [
@@ -1869,6 +2240,7 @@ const byDay = Array.isArray(rawByDay)
       </header>
 
       <main className="p-5 space-y-6">
+        {/* Top stats */}
         <div className="grid gap-4 md:grid-cols-4">
           <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
             <p className="text-[11px] font-semibold text-[#A06A32]">
@@ -1907,6 +2279,7 @@ const byDay = Array.isArray(rawByDay)
           </div>
         </div>
 
+        {/* Questions by Category – DONUT */}
         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
           <div className="flex items-center gap-2 mb-4">
             <PieChartIcon size={18} className={THEME.textSub} />
@@ -1916,26 +2289,25 @@ const byDay = Array.isArray(rawByDay)
           </div>
 
           <div className="flex flex-col items-center gap-6 md:flex-row md:items-center md:justify-center">
-            <div className="w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <RePieChart>
-                  <Pie
-                    data={chartData}
-                    dataKey="value"
-                    nameKey="label"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius="80%"
-                    innerRadius={0}
-                    paddingAngle={1}
-                    isAnimationActive={false}
-                  >
-                    {chartData.map((slice) => (
-                      <Cell key={slice.label} fill={slice.color} />
-                    ))}
-                  </Pie>
-                </RePieChart>
-              </ResponsiveContainer>
+            <div className="flex items-center justify-center">
+              {/* 🔹 Fixed-size RePieChart: no ResponsiveContainer */}
+              <RePieChart width={260} height={260}>
+                <Pie
+                  data={chartData}
+                  dataKey="value"
+                  nameKey="label"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={120}
+                  innerRadius={0}
+                  paddingAngle={1}
+                  isAnimationActive={false}
+                >
+                  {chartData.map((slice) => (
+                    <Cell key={slice.label} fill={slice.color} />
+                  ))}
+                </Pie>
+              </RePieChart>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
@@ -1952,6 +2324,7 @@ const byDay = Array.isArray(rawByDay)
           </div>
         </div>
 
+        {/* Consistency by Category */}
         <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
           <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
             Consistency by Category
@@ -1975,56 +2348,69 @@ const byDay = Array.isArray(rawByDay)
             })}
           </div>
         </div>
-        <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
-            <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
-              Usage (last 7 days)
-            </h2>
 
-            <div className="flex gap-1 items-end h-40">
-              {byDay.length === 0 ? (
-                <p className={`${THEME.textSub} text-xs`}>
-                  No usage data yet.
-                </p>
-              ) : (
-                (() => {
-                  const maxCount =
-                    Math.max(...byDay.map((x: any) => x.count)) || 0;
+        {/* Usage (last 7 days) – VERTICAL BARS */}
+          <div className="rounded-2xl border border-[#F3C58C] bg-[#FFF6EA] p-4">
+          <h2 className={`text-sm font-semibold ${THEME.textMain} mb-1`}>
+            Usage (last 7 days)
+          </h2>
 
-                  return byDay.map((row: any) => {
-                    const pct = maxCount
-                      ? (row.count / maxCount) * 100
-                      : 0;
+          <div className="flex gap-1 items-end h-40 mt-2">
+            {usageData.length === 0 ? (
+              <p className={`${THEME.textSub} text-xs`}>
+                No usage data yet.
+              </p>
+            ) : (
+              usageData.map((row: any) => {
+                const barHeightPx = maxUsage
+                  ? (row.count / maxUsage) * 140 // a bit less than 160 so text fits nicely
+                  : 0;
 
-                    return (
-                      <div
-                        key={row.date}
-                        className="flex-1 flex flex-col items-center"
-                      >
-                        <div
-                          className="w-full bg-[#FF8A00] rounded-t-full"
-                          style={{ height: `${pct}%` }}
-                        />
-                        <span className="text-[10px] text-[#A06A32] mt-1">
-                          {row.date.slice(5)}
-                        </span>
-                      </div>
-                    );
-                  });
-                })()
-              )}
-            </div>
+                return (
+                  <div
+                    key={row.date}
+                    className="flex-1 flex flex-col items-center justify-end"
+                  >
+                    {/* Count on top of the bar */}
+                    <span className="text-[10px] text-[#A06A32] mb-1">
+                      {row.count}
+                    </span>
+
+                    {/* Bar */}
+                    <div
+                      className="w-3 sm:w-4 rounded-t-full"
+                      style={{
+                        height: `${barHeightPx}px`,
+                        backgroundColor: "#FF8A00",
+                      }}
+                    />
+
+                    {/* Date label under the bar */}
+                    <span className="text-[10px] text-[#A06A32] mt-1">
+                      {row.date.slice(5)}
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
-        </main>
-      </div>
-    );
-    }
+        </div>
 
-/* ------------------------------------------------------------
-   DEFAULT EXPORT FOR NEXT.JS
------------------------------------------------------------- */
 
-const Page: React.FC = () => {
+      </main>
+    </div>
+  );
+}
+// /* ------------------------------------------------------------
+//    DEFAULT EXPORT FOR NEXT.JS
+// ------------------------------------------------------------ */
+
+// ------------------------------------------------------------
+// DEFAULT EXPORT FOR NEXT.JS
+// ------------------------------------------------------------
+
+export default function Page() {
   return <ZuzuApp />;
-};
+}
 
-export default Page;
+
