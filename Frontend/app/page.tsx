@@ -235,17 +235,17 @@ interface Conversation {
 // ============================================================
 
 
-// const API_BASE = "http://localhost:8000/api";
+const API_BASE = "http://localhost:8000/api";
 // const API_BASE = process.env.NEXT_PUBLIC_API_BASE!;
 
-const rawEnv = process.env.NEXT_PUBLIC_API_BASE;
+// const rawEnv = process.env.NEXT_PUBLIC_API_BASE;
 
-// If NEXT_PUBLIC_API_BASE is missing or literally "undefined",
-// hard-fallback to the real Azure backend URL
-const API_BASE =
-  rawEnv && rawEnv !== "undefined"
-    ? rawEnv
-    : "https://zuzu-backend-api.azurewebsites.net/api";
+// // If NEXT_PUBLIC_API_BASE is missing or literally "undefined",
+// // hard-fallback to the real Azure backend URL
+// const API_BASE =
+//   rawEnv && rawEnv !== "undefined"
+//     ? rawEnv
+//     : "https://zuzu-backend-api.azurewebsites.net/api";
 
 // console.log("API_BASE in production:", API_BASE);
 
@@ -2100,6 +2100,8 @@ export function AdminDashboard({
   const [loading, setLoading] = useState(true);
   const [d, setD] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+  type DayUsage = { date: string; count: number };
+
 
   useEffect(() => {
     (async () => {
@@ -2155,33 +2157,62 @@ export function AdminDashboard({
   const consistencyByCategory = d.consistencyByCategory || {};
 
   // 🔹 Normalize byDay
-  const byDay = Array.isArray(rawByDay)
-    ? rawByDay
-        .map((row: any) => {
-          const date =
-            row.date ||
-            row.day ||
-            (typeof row.created_at === "string"
-              ? row.created_at.slice(0, 10)
-              : null) ||
-            row.dt ||
-            row.d;
+  // const byDay = Array.isArray(rawByDay)
+  //   ? rawByDay
+  //       .map((row: any) => {
+  //         const date =
+  //           row.date ||
+  //           row.day ||
+  //           (typeof row.created_at === "string"
+  //             ? row.created_at.slice(0, 10)
+  //             : null) ||
+  //           row.dt ||
+  //           row.d;
 
-          const count =
-            row.count ??
-            row.total ??
-            row.questions ??
-            row.num_questions ??
-            0;
+  //         const count =
+  //           row.count ??
+  //           row.total ??
+  //           row.questions ??
+  //           row.num_questions ??
+  //           0;
 
-          if (!date) return null;
-          return {
-            date,
-            count: Number(count) || 0,
-          };
-        })
-        .filter(Boolean)
-    : [];
+  //         if (!date) return null;
+  //         return {
+  //           date,
+  //           count: Number(count) || 0,
+  //         };
+  //       })
+  //       .filter(Boolean)
+  //   : [];
+
+  const byDay: DayUsage[] = Array.isArray(rawByDay)
+  ? rawByDay
+      .map((row: any): DayUsage | null => {
+        const date =
+          row.date ||
+          row.day ||
+          (typeof row.created_at === "string"
+            ? row.created_at.slice(0, 10)
+            : null) ||
+          row.dt ||
+          row.d;
+
+        const count =
+          row.count ??
+          row.total ??
+          row.questions ??
+          row.num_questions ??
+          0;
+
+        if (!date) return null;
+        return {
+          date,
+          count: Number(count) || 0,
+        };
+      })
+      .filter((row): row is DayUsage => row !== null)
+  : [];
+
   const usageData = byDay;
   const maxUsage = usageData.length
     ? Math.max(...usageData.map((d) => d.count))
