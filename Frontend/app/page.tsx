@@ -476,6 +476,13 @@ const LINK_MAPPINGS: {
     label: "WINGS login",
   },
   {
+    name: "wings-auth",
+    basePattern:
+      /https:\/\/auth\.wright\.edu\/idp\/prp\.wsf[^\s)]*/gi,
+    canonicalUrl: WINGS_LOGIN_URL,
+    label: "WINGS login",
+  },
+  {
     name: "arrival",
     basePattern:
       /https:\/\/i-raider\.wright\.edu\/istart\/controllers\/client\/ClientEngine\.cfm\?serviceid=EFormArrivalNotification0ServiceProvider[^\s)]*/gi,
@@ -876,10 +883,22 @@ function ZuzuApp() {
     //   }
     // }
 
+//     const parsed = parseStudentType(text);
+
+// // If we can detect profile, use it as a temporary title
+// // (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
+//     if (parsed.valid && parsed.level) {
+//       const prettyTitle =
+//         parsed.level === "PhD"
+//           ? "PhD student"
+//           : `${parsed.level} student`;
+//       updateConversationTitle(activeConvo.id, prettyTitle);
+//       setStudentLevel(parsed.level);
+//     }
     const parsed = parseStudentType(text);
 
-// If we can detect profile, use it as a temporary title
-// (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
+    // If we can detect profile, use it as a temporary title
+    // (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
     if (parsed.valid && parsed.level) {
       const prettyTitle =
         parsed.level === "PhD"
@@ -888,6 +907,7 @@ function ZuzuApp() {
       updateConversationTitle(activeConvo.id, prettyTitle);
       setStudentLevel(parsed.level);
     }
+
 
 
     if (!parsed.valid && introState === "waiting_first") {
