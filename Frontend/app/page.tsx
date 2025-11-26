@@ -247,7 +247,7 @@ const API_BASE =
     ? rawEnv
     : "https://zuzu-backend-api.azurewebsites.net/api";
 
-console.log("API_BASE in production:", API_BASE);
+// console.log("API_BASE in production:", API_BASE);
 
 
 // ============================================================
