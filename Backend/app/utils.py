@@ -17,6 +17,7 @@ ZUZU_CATEGORIES: List[str] = [
     "Phone and Connectivity",
     "Work and Career",
     "Community and Daily Life",
+    "Undergraduate - Placement Assessments"
     "Other Inquiries",
 ]
 
@@ -93,6 +94,10 @@ ZUZU_SUBCATEGORIES: Dict[str, List[str]] = {
         "Shopping and groceries",
         "Transportation",
         "Local community and culture",
+    ],
+    "Undergraduate - Placement Assessments":[
+        "Undergraduate - Math Placement Assessment",
+        "Undergraduate - Writing Placement Assessment",
     ],
     "Other Inquiries": [
         "General questions",
@@ -287,6 +292,21 @@ def naive_category(text: str) -> str:
         ]
     ):
         return "Work and Career"
+    
+        # Undergrad Placement Assessments
+    if any(
+        kw in t
+        for kw in [
+            "placement exam",
+            "placement test",
+            "placement assessment",
+            "math placement",
+            "writing placement",
+            "aleks",
+        ]
+    ):
+        return "Undergrad Placement Assessments"
+
 
     # Community & daily life
     if any(

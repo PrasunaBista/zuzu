@@ -50,6 +50,7 @@ export const ZUZU_CATEGORIES: string[] = [
   "Phone and Connectivity",
   "Work and Career",
   "Community and Daily Life",
+  "Undergraduate - Placement Assessments",
   "Other Inquiries",
 ];
 
@@ -132,6 +133,10 @@ export const ZUZU_SUBCATEGORIES: Record<string, string[]> = {
     "Weather and clothing",
     "Transportation (bus, parking, ride-share)",
     "Student clubs and making friends",
+  ],
+  "Undergraduate - Placement Assessments":[
+    "Undergraduate - Math Placement Assessment",
+    "Undergraduate - Writing Placement Assessment",
   ],
   "Other Inquiries": ["Anything else"],
 };
@@ -223,29 +228,39 @@ interface Message {
   buttons?: ZuzuButton[];
 }
 
+// interface Conversation {
+//   id: string;
+//   title: string;
+//   createdAt: number;
+//   messages: Message[];
+//   studentLevel?: string | null;   // "undergraduate" | "graduate" | "PhD"
+// }
+
 interface Conversation {
   id: string;
   title: string;
   createdAt: number;
   messages: Message[];
+  studentLevel?: string | null;   // 🔹 NEW
 }
+
 
 // ============================================================
 //                      API BASE URL
 // ============================================================
 
 
-// const API_BASE = "http://localhost:8000/api";
+const API_BASE = "http://localhost:8000/api";
 // const API_BASE = process.env.NEXT_PUBLIC_API_BASE!;
 
-const rawEnv = process.env.NEXT_PUBLIC_API_BASE;
+// const rawEnv = process.env.NEXT_PUBLIC_API_BASE;
 
-// If NEXT_PUBLIC_API_BASE is missing or literally "undefined",
-// hard-fallback to the real Azure backend URL
-const API_BASE =
-  rawEnv && rawEnv !== "undefined"
-    ? rawEnv
-    : "https://zuzu-backend-api.azurewebsites.net/api";
+// // If NEXT_PUBLIC_API_BASE is missing or literally "undefined",
+// // hard-fallback to the real Azure backend URL
+// const API_BASE =
+//   rawEnv && rawEnv !== "undefined"
+//     ? rawEnv
+//     : "https://zuzu-backend-api.azurewebsites.net/api";
 
 // console.log("API_BASE in production:", API_BASE);
 
@@ -400,6 +415,19 @@ function parseStudentType(answer: string) {
 
 //   return { content, buttons };
 // }
+function getVisibleCategories(level: string | null): string[] {
+  // Start with everything except the undergrad-only category
+  const base = ZUZU_CATEGORIES.filter(
+    (cat) => cat !== "Undergraduate - Placement Assessments"
+  );
+
+  // Only undergrads see that category
+  if (level === "undergraduate") {
+    return [...base, "Undergraduate - Placement Assessments"];
+  }
+
+  return base;
+}
 
 function buildCategoryButtonMessage(parsed: {
   level: string | null;
@@ -412,15 +440,27 @@ function buildCategoryButtonMessage(parsed: {
       ? `Great! I've noted that you're a **${level}** student.`
       : `Thanks for sharing that! I’ll still tailor things as best I can.`;
 
-  const content =
+  // const content =
+  //   profileText + `\n\nHere are the main areas I can help with:`;
+
+  // const buttons: ZuzuButton[] = ZUZU_CATEGORIES.map((cat) => ({
+  //   id: `cat-${cat}`,
+  //   label: cat,
+  //   kind: "category",
+  //   category: cat,
+  // }));
+    const content =
     profileText + `\n\nHere are the main areas I can help with:`;
 
-  const buttons: ZuzuButton[] = ZUZU_CATEGORIES.map((cat) => ({
+  const visibleCategories = getVisibleCategories(level);
+
+  const buttons: ZuzuButton[] = visibleCategories.map((cat) => ({
     id: `cat-${cat}`,
     label: cat,
     kind: "category",
     category: cat,
   }));
+
 
   return { content, buttons };
 }
@@ -447,7 +487,7 @@ function stripSourcesSection(text: string): string {
 
 // Canonical URLs we want to always show as clean Markdown links
 const WINGS_LOGIN_URL =
-  "https://login.microsoftonline.com/5c46d65d-ee5c-4513-8cd4-af98d15e6833/oauth2/authorize?client_id=00000003-0000-0ff1-ce00-000000000000&response_mode=form_post&response_type=code%20id_token&resource=00000003-0000-0ff1-ce00-000000000000&scope=openid&nonce=880052A85FD9DD18229A1CC2FF030074545BD6DD7E4BB9A1%2DF48A2313E66AB6404CB99269B1419575C5FCE80D868358287090900099E99FBD&redirect_uri=https%3A%2F%2Fraidermailwright.sharepoint.com%2F_forms%2Fdefault.aspx&state=OD0w&claims=%7B%22id_token%22%3A%7B%22xms_cc%22%3A%7B%22values%22%3A%5B%22CP1%22%5D%7D%7D%7D&wsucxt=1&cobrandid=11bd8083-87e0-41b5-bb78-0bc43c8a8e8a&client-request-id=7440dca1-70be-a000-e122-d780c2e117d5";
+  "https://auth.wright.edu/idp/prp.wsf?client-request-id=9c361ff8-a5a8-4bd2-a21d-25e31d7914bb&username=&wa=wsignin1.0&wtrealm=urn%3afederation%3aMicrosoftOnline&wctx=estsredirect%3d2%26estsrequest%3drQQIARAA42KwMswoKSkottLXL0rMTEktyk3MzCkvykzPKNErzkgsSi3Iz8wr0UvOz9XLL0rPTAGxioS4BH7Im81ZsfSS9yJZ1ceylSK7ZzFyQXWlppSuYjQh0lD94syS1GL98My89GL9C4yMLxgZbzEJ-hele6aEF7ulArUmlmTm511gEXjFwmPAasXBwSXAL8GuwPCDhXERK9AdooJr9qwvWOAyL3atg7B0G8MpVv3wMK_ClNCcQs8wg7SSAGe3tNAIE5cq7_AKk7C00JCS4gqvkKLyYOOszHRPWzMrwwlsQhPYmE6xMXxgY-xgZ5jFzrCLkyznH-Bl-MF3ZvWr65Pvdr_32CDA8ACIBBl-CDY0OAAA0#";
 
 const ARRIVAL_FORM_URL =
   "https://i-raider.wright.edu/istart/controllers/client/ClientEngine.cfm?serviceid=EFormArrivalNotification0ServiceProvider";
@@ -460,7 +500,14 @@ const SEVIS_FEE_URL = "https://www.fmjfee.com";
 const TEMP_HOUSING_URL =
   "https://www.extendedstayamerica.com/corporate/?corpaccount=1382";
 
+
+const Late_Arrival_Form_URL =
+  "https://auth.wright.edu/idp/SSO.saml2?SAMLRequest=fZJPU8IwEMW%2FSif3tE2tAhlgBsU%2FzCAwFj14cUK6QGbapGYT0W9vKDrCQS45vN23eb9s%2BijqquEj77b6Cd49oIs%2B60ojbwsD4q3mRqBCrkUNyJ3kxehxyrM45Y01zkhTkSPLeYdABOuU0SSajAdkPrudzu8ns7eclTl0ZUrTbN2l%2BSrvUpGKkq47q6teXl4J1umR6AUsBu%2BAhFFhAKKHiUYntAtSml1SxmjWW6aM5xec5a8kGgcepYVrXVvnGuRJIgJsvLNqs3UxlD5RZZMUxTzex89ItPihula6VHpzHmh1aEL%2BsFwu6GJeLEk0%2BoW8MRp9DbYA%2B6EkPD9N%2F0IoaoUqwZ4ECSzWJdJoZ01VBdrkoBT781ZvlIZYrmsy7O%2Bz8vYF7BC9Fk2IR71UkLKmnxxX%2B4cNz0L0yXhhKiW%2Fojtja%2BH%2BJ2MxaxUVNtC2cq%2BxAanWCsoAWFVmd2NBOBgQZz2QKBkebj39SsNv";
 // One config array so it's easy to add more later
+
+const Application_Portal_URL =
+  "https://go.wright.edu/account/login?r=https%3a%2f%2fgo.wright.edu%2fportal%2fstatus";
+
 const LINK_MAPPINGS: {
   name: string;
   // something unique we can regex-match even if the LLM mangles query params
@@ -510,7 +557,15 @@ const LINK_MAPPINGS: {
     canonicalUrl: TEMP_HOUSING_URL,
     label: "Extended Stay America corporate rate",
   },
+  {
+  name: "lateArrival",
+    basePattern:
+      /https:\/\/auth\.wright\.edu\/idp\/SSO\.saml2[^\s)]*/gi,
+    canonicalUrl: Late_Arrival_Form_URL,
+    label: "Late Arrival Form",
+  },
 ];
+
 
 // Generic normalizer: for each known URL, collapse messy versions
 // and wrap them in a nice Markdown link [label](url)
@@ -628,6 +683,20 @@ function ZuzuApp() {
   const [adminKey, setAdminKey] = useState<string | null>(null);
   const [studentLevel, setStudentLevel] = useState<string | null>(null);
 
+  // 🔹 Keep studentLevel in sync with whichever conversation is active
+  useEffect(() => {
+    if (!activeConvo) {
+      setStudentLevel(null);
+      return;
+    }
+
+    if (activeConvo.studentLevel) {
+      setStudentLevel(activeConvo.studentLevel);
+    } else {
+      setStudentLevel(null);
+    }
+  }, [activeConvo]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConvo?.messages, isTyping]);
@@ -719,21 +788,42 @@ function ZuzuApp() {
       ts: Date.now(),
     };
 
-    const convo: Conversation = {
-      id,
-      title: "New Conversation",
-      createdAt: Date.now(),
-      messages: [firstMsg],
-    };
+  //   const convo: Conversation = {
+  //     id,
+  //     title: "New Conversation",
+  //     createdAt: Date.now(),
+  //     messages: [firstMsg],
+  //   };
 
-    setConvos((x) => [convo, ...x]);
-    setActiveId(id);
-    setFlowStep("intro");
-    setIntroState("waiting_first");
-    setSelectedCategory(null);
-    setSelectedSubcategory(null);
-    setCurrentContext(null);
-  }
+  //   setConvos((x) => [convo, ...x]);
+  //   setActiveId(id);
+  //   setFlowStep("intro");
+  //   setIntroState("waiting_first");
+  //   setSelectedCategory(null);
+  //   setSelectedSubcategory(null);
+  //   setCurrentContext(null);
+
+  //    setStudentLevel(null);
+  // }
+    const convo: Conversation = {
+    id,
+    title: "New Conversation",
+    createdAt: Date.now(),
+    messages: [firstMsg],
+    studentLevel: null,          // 🔹 NEW
+  };
+
+  setConvos((x) => [convo, ...x]);
+  setActiveId(id);
+  setFlowStep("intro");
+  setIntroState("waiting_first");
+  setSelectedCategory(null);
+  setSelectedSubcategory(null);
+  setCurrentContext(null);
+
+  // 🔹 New convo → no profile yet
+  setStudentLevel(null);
+}
 
   function deleteConvo(id: string) {
     setConvos((x) => x.filter((c) => c.id !== id));
@@ -780,6 +870,28 @@ function ZuzuApp() {
 
     const skipUserMessage = options?.skipUserMessage ?? false;
 
+
+      // 🔹 Rescue path: if this convo doesn't have a stored profile yet,
+  // but the user message *looks* like one (mentions undergrad/grad/PhD),
+  // capture it now.
+  if (!activeConvo.studentLevel) {
+    const parsed = parseStudentType(text);
+    if (parsed.valid && parsed.level) {
+      // Update global state
+      setStudentLevel(parsed.level);
+
+      // Persist in this conversation
+      setConvos((prev) =>
+        prev.map((c) =>
+          c.id === activeConvo.id
+            ? { ...c, studentLevel: parsed.level }
+            : c
+        )
+      );
+    }
+  }
+
+
     if (!skipUserMessage) {
       const hasUserMessages =
         activeConvo.messages.filter((m) => m.role === "user").length > 0;
@@ -809,13 +921,18 @@ function ZuzuApp() {
 
     setIsTyping(true);
 
-    // 🔹 NEW: add soft context to help LLM remember what topic we're on
-    // const effectiveText =
-    //   currentContext && currentContext.trim().length > 0
-    //     ? `${text}\n\n(Context: this question is about "${currentContext}".)`
-    //     : text;
-    const profilePrefix = studentLevel
-      ? `Student profile: ${studentLevel} student.\n\n`
+    
+    // const profilePrefix = studentLevel
+    //   ? `Student profile: ${studentLevel} student.\n\n`
+    //   : "";
+
+    // const effectiveText = `${profilePrefix}${text}`;
+    // Prefer the level saved on this convo, fall back to global state if needed
+    const levelForThisChat =
+      (activeConvo as any).studentLevel ?? studentLevel;
+
+    const profilePrefix = levelForThisChat
+      ? `Student profile: ${levelForThisChat} student.\n\n`
       : "";
 
     const effectiveText = `${profilePrefix}${text}`;
@@ -868,43 +985,41 @@ function ZuzuApp() {
       )
     );
 
-    // const parsed = parseStudentType(text);
-
-    // // 🔹 NEW: if we can detect profile, use it as a temporary title
-    // // (e.g., "international graduate") so chats aren't stuck as "New Conversation"
-    // if (parsed.valid) {
-    //   const levelLabel = parsed.level ?? "";
-    //   const originLabel = parsed.origin ?? "";
-    //   const prettyTitle = `${originLabel} ${levelLabel}`.trim();
-    //   if (prettyTitle) {
-    //     updateConversationTitle(activeConvo.id, prettyTitle);
-    //   }
-    // }
-
-//     const parsed = parseStudentType(text);
-
-// // If we can detect profile, use it as a temporary title
-// // (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
-//     if (parsed.valid && parsed.level) {
-//       const prettyTitle =
-//         parsed.level === "PhD"
-//           ? "PhD student"
-//           : `${parsed.level} student`;
-//       updateConversationTitle(activeConvo.id, prettyTitle);
-//       setStudentLevel(parsed.level);
-//     }
+  
     const parsed = parseStudentType(text);
 
-    // If we can detect profile, use it as a temporary title
-    // (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
-    if (parsed.valid && parsed.level) {
-      const prettyTitle =
-        parsed.level === "PhD"
-          ? "PhD student"
-          : `${parsed.level} student`;
-      updateConversationTitle(activeConvo.id, prettyTitle);
-      setStudentLevel(parsed.level);
-    }
+    // // If we can detect profile, use it as a temporary title
+    // // (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
+    // if (parsed.valid && parsed.level) {
+    //   const prettyTitle =
+    //     parsed.level === "PhD"
+    //       ? "PhD student"
+    //       : `${parsed.level} student`;
+    //   updateConversationTitle(activeConvo.id, prettyTitle);
+    //   setStudentLevel(parsed.level);
+    // }
+
+        if (parsed.valid && parsed.level) {
+          const prettyTitle =
+            parsed.level === "PhD"
+              ? "PhD student"
+              : `${parsed.level} student`;
+
+          updateConversationTitle(activeConvo.id, prettyTitle);
+
+          // 🔹 Keep a global copy if you want
+          setStudentLevel(parsed.level);
+
+          // 🔹 ALSO store per-conversation
+          setConvos((prev) =>
+            prev.map((c) =>
+              c.id === activeConvo.id
+                ? { ...c, studentLevel: parsed.level }
+                : c
+            )
+          );
+        }
+
 
 
 
@@ -975,69 +1090,48 @@ function ZuzuApp() {
     }
   }
 
-  // function sendMessage() {
-  //   const t = input.trim();
-  //   if (!t) return;
-
-    // if (introState !== "done") {
-    //   setInput("");
-    //   void handleIntroAnswer(t);
-    //   return;
-    // }
-
-  //   if (introState !== "done") {
-  // // Only allow intro ONCE — if introState is "done", NEVER go back
-  //     if (introState === "waiting_first" || introState === "waiting_retry") {
-  //       setInput("");
-  //       void handleIntroAnswer(t);
-  //       return;
-  //     }
-  //   }
 
 
-  //   setInput("");
-  //   void sendMessageWithText(t);
-  // }
-    
   // function sendMessage() {
   //   const t = input.trim();
   //   if (!t || !activeConvo) return;
 
-  //   // Check if this conversation already has normal user messages
-  //   const hasUserMessages =
-  //     activeConvo.messages.filter((m) => m.role === "user").length > 0;
-
-  //   if (introState !== "done" && !hasUserMessages) {
-  //     // ✅ FIRST-EVER user message in this convo -> treat as intro
+  //   if (introState !== "done") {
   //     setInput("");
   //     void handleIntroAnswer(t);
   //     return;
   //   }
 
-  //   // ✅ If we somehow ended up with introState != "done" but we already
-  //   // have user messages, force intro to done and treat this as normal chat.
-  //   if (introState !== "done" && hasUserMessages) {
-  //     setIntroState("done");
-  //   }
-
+  //   // introState === "done" here
   //   setInput("");
   //   void sendMessageWithText(t);
   // }
 
+
   function sendMessage() {
-    const t = input.trim();
-    if (!t || !activeConvo) return;
+  const t = input.trim();
+  if (!t || !activeConvo) return;
 
-    if (introState !== "done") {
-      setInput("");
-      void handleIntroAnswer(t);
-      return;
-    }
+  // Does this conversation already have at least one user message?
+  const hasUserMessages =
+    activeConvo.messages.filter((m) => m.role === "user").length > 0;
 
-    // introState === "done" here
+  if (introState !== "done" && !hasUserMessages) {
+    // 🔹 This is truly the FIRST user message in THIS convo → treat as profile intro
     setInput("");
-    void sendMessageWithText(t);
+    void handleIntroAnswer(t);
+    return;
   }
+
+  if (introState !== "done" && hasUserMessages) {
+    // 🔹 We're in an existing convo, but introState is stale → force it to “done”
+    setIntroState("done");
+  }
+
+  setInput("");
+  void sendMessageWithText(t);
+}
+
 
 
 
@@ -1048,88 +1142,456 @@ function ZuzuApp() {
     }
   }
 
+  // // function handleButtonClick(btn: ZuzuButton) {
+  // //   if (!activeConvo) return;
+
+  // //   let selectionText = btn.label;
+  // //   if (btn.kind === "subcategory" && btn.category) {
+  // //     selectionText = `${btn.category} → ${btn.label}`;
+  // //   } else if (btn.kind === "thirdlevel" && btn.category && btn.subcategory) {
+  // //     selectionText = `${btn.category} → ${btn.subcategory} → ${btn.label}`;
+  // //   }
+
+  // //   // 🔹 NEW: remember this as the current context for follow-up questions
+  // //   setCurrentContext(selectionText);
+
+  // //   const userMsg: Message = {
+  // //     id: uid(),
+  // //     role: "user",
+  // //     content: selectionText,
+  // //     ts: Date.now(),
+  // //   };
+
+  // //   const hasUserMessages =
+  // //     activeConvo.messages.filter((m) => m.role === "user").length > 0;
+
+  // //   const maybeUpdateTitle = (text: string) => {
+  // //     const title = activeConvo.title;
+  // //     // const looksLikeProfile =
+  // //     //   /international|domestic/i.test(title) &&
+  // //     //   /graduate|undergraduate|grad|undergrad/i.test(title);
+  // //     const looksLikeProfile =/undergraduate|graduate|phd|grad|undergrad/i.test(title);
+
+
+  // //     // 🔹 Allow overriding "New Conversation" **and** simple profile titles
+  // //     if (!hasUserMessages || title === "New Conversation" || looksLikeProfile) {
+  // //       updateConversationTitle(activeConvo.id, text);
+  // //     }
+  // //   };
+
+  //   // if (btn.kind === "category") {
+  //   //   // Special behavior for "Other Inquiries"
+  //   //   if (btn.label === "Other Inquiries") {
+  //   //     const botMsg: Message = {
+  //   //       id: uid(),
+  //   //       role: "bot",
+  //   //       ts: Date.now(),
+  //   //       content:
+  //   //         "Great! 😊\n\n" +
+  //   //         "“Other Inquiries” just means anything that doesn’t quite fit the other buttons.\n\n" +
+  //   //         "Please go ahead and **type your question in your own words**, and I’ll do my best to help.",
+  //   //     };
+
+  //   //     maybeUpdateTitle(btn.label);
+
+  //   //     setConvos((prev) =>
+  //   //       prev.map((c) =>
+  //   //         c.id === activeConvo.id
+  //   //           ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //   //           : c
+  //   //       )
+  //   //     );
+  //   //     setSelectedCategory(btn.label);
+
+  //   //     // 🔹 track category click
+  //   //     trackCategorySelection(btn.label);
+  //   //     return;
+  //   //   }
+
+  //   //   // Default behavior for all other categories
+  //   //   const subs = ZUZU_SUBCATEGORIES[btn.label] ?? [];
+
+  //   //   const subButtons: ZuzuButton[] = subs.map((sub) => ({
+  //   //     id: `sub-${btn.label}-${sub}`,
+  //   //     label: sub,
+  //   //     kind: "subcategory",
+  //   //     category: btn.label,
+  //   //   }));
+
+  //   //   const botMsg: Message = {
+  //   //     id: uid(),
+  //   //     role: "bot",
+  //   //     ts: Date.now(),
+  //   //     content: `Great, let's look at **${btn.label}**. Here are the main sections I can walk you through:`,
+  //   //     buttons: subButtons,
+  //   //   };
+
+  //   //   maybeUpdateTitle(btn.label);
+
+  //   //   setConvos((prev) =>
+  //   //     prev.map((c) =>
+  //   //       c.id === activeConvo.id
+  //   //         ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //   //         : c
+  //   //     )
+  //   //   );
+  //   //   setSelectedCategory(btn.label);
+
+  //   //   // 🔹 track category click
+  //   //   trackCategorySelection(btn.label);
+  //   //   return;
+  //   // }
+  //   if (btn.kind === "category") {
+  //     // 🔹 Special behavior for "Housing"
+  //     if (btn.label === "Housing") {
+  //       const botMsg: Message = {
+  //         id: uid(),
+  //         role: "bot",
+  //         ts: Date.now(),
+  //         content:
+  //           "Awesome, let’s talk housing! 🏡\n\n" +
+  //           "Wright State offers both **on-campus** and **off-campus** housing options. On-campus housing is also very affordable for many students, so I recommend exploring **both** before making a decision.\n\n" +
+  //           "Let me know what you’d like to start with:",
+  //         buttons: [
+  //           {
+  //             id: "housing-on-campus",
+  //             label: "On-campus housing",
+  //             kind: "subcategory",
+  //             category: "Housing",
+  //           },
+  //           {
+  //             id: "housing-off-campus",
+  //             label: "Off-campus housing",
+  //             kind: "subcategory",
+  //             category: "Housing",
+  //           },
+  //         ],
+  //       };
+
+  //       maybeUpdateTitle(btn.label);
+
+  //       setConvos((prev) =>
+  //         prev.map((c) =>
+  //           c.id === activeConvo.id
+  //             ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //             : c
+  //         )
+  //       );
+  //       setSelectedCategory(btn.label);
+
+  //       // track category click
+  //       trackCategorySelection(btn.label);
+  //       return;
+  //     }
+
+  //     // 🔹 Special behavior for "Other Inquiries"
+  //     if (btn.label === "Other Inquiries") {
+  //       const botMsg: Message = {
+  //         id: uid(),
+  //         role: "bot",
+  //         ts: Date.now(),
+  //         content:
+  //           "Great! 😊\n\n" +
+  //           "“Other Inquiries” just means anything that doesn’t quite fit the other buttons.\n\n" +
+  //           "Please go ahead and **type your question in your own words**, and I’ll do my best to help.",
+  //       };
+
+  //       maybeUpdateTitle(btn.label);
+
+  //       setConvos((prev) =>
+  //         prev.map((c) =>
+  //           c.id === activeConvo.id
+  //             ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //             : c
+  //         )
+  //       );
+  //       setSelectedCategory(btn.label);
+
+  //       // 🔹 track category click
+  //       trackCategorySelection(btn.label);
+  //       return;
+  //     }
+
+  //     // Default behavior for all other categories
+  //     const subs = ZUZU_SUBCATEGORIES[btn.label] ?? [];
+
+  //     const subButtons: ZuzuButton[] = subs.map((sub) => ({
+  //       id: `sub-${btn.label}-${sub}`,
+  //       label: sub,
+  //       kind: "subcategory",
+  //       category: btn.label,
+  //     }));
+
+  //     const botMsg: Message = {
+  //       id: uid(),
+  //       role: "bot",
+  //       ts: Date.now(),
+  //       content: `Great, let's look at **${btn.label}**. Here are the main sections I can walk you through:`,
+  //       buttons: subButtons,
+  //     };
+
+  //     maybeUpdateTitle(btn.label);
+
+  //     setConvos((prev) =>
+  //       prev.map((c) =>
+  //         c.id === activeConvo.id
+  //           ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //           : c
+  //       )
+  //     );
+  //     setSelectedCategory(btn.label);
+
+  //     // 🔹 track category click
+  //     trackCategorySelection(btn.label);
+  //     return;
+  //   }
+
+
+  //   // if (btn.kind === "subcategory") {
+  //   //   if (
+  //   //     btn.category === "Housing" &&
+  //   //     HOUSING_THIRD_LEVEL[btn.label] &&
+  //   //     HOUSING_THIRD_LEVEL[btn.label].length > 0
+  //   //   ) {
+  //   //     const detailButtons: ZuzuButton[] = HOUSING_THIRD_LEVEL[btn.label].map(
+  //   //       (detail) => ({
+  //   //         id: `detail-${btn.category}-${btn.label}-${detail}`,
+  //   //         label: detail,
+  //   //         kind: "thirdlevel",
+  //   //         category: btn.category,
+  //   //         subcategory: btn.label,
+  //   //       })
+  //   //     );
+
+  //   //     const botMsg: Message = {
+  //   //       id: uid(),
+  //   //       role: "bot",
+  //   //       ts: Date.now(),
+  //   //       content: `Here are the specific topics under **${btn.label}**:`,
+  //   //       buttons: detailButtons,
+  //   //     };
+
+  //   //     maybeUpdateTitle(`${btn.category} – ${btn.label}`);
+
+  //   //     setConvos((prev) =>
+  //   //       prev.map((c) =>
+  //   //         c.id === activeConvo.id
+  //   //           ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //   //           : c
+  //   //       )
+  //   //     );
+  //   //     setSelectedCategory(btn.category ?? null);
+  //   //     setSelectedSubcategory(btn.label);
+
+  //   //     // 🔹 track subcategory as part of category usage
+  //   //     trackCategorySelection(`${btn.category} – ${btn.label}`);
+  //   //     return;
+  //   //   }
+  //   if (btn.kind === "subcategory") {
+  // // 🔹 Special step: after "On-campus housing", show detailed Housing subcategories
+  //     if (btn.category === "Housing" && btn.label === "On-campus housing") {
+  //       const subs = ZUZU_SUBCATEGORIES["Housing"] ?? [];
+
+  //       const subButtons: ZuzuButton[] = subs.map((sub) => ({
+  //         id: `sub-housing-${sub}`,
+  //         label: sub,
+  //         kind: "subcategory",
+  //         category: "Housing",
+  //       }));
+
+  //       const botMsg: Message = {
+  //         id: uid(),
+  //         role: "bot",
+  //         ts: Date.now(),
+  //         content:
+  //           "Great! Here are the main **on-campus housing** topics I can walk you through:",
+  //         buttons: subButtons,
+  //       };
+
+  //       maybeUpdateTitle("On-campus housing");
+
+  //       setConvos((prev) =>
+  //         prev.map((c) =>
+  //           c.id === activeConvo.id
+  //             ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //             : c
+  //         )
+  //       );
+
+  //       setSelectedCategory("Housing");
+  //       setSelectedSubcategory("On-campus housing");
+
+  //       // optional: track analytics
+  //       trackCategorySelection("Housing – On-campus housing");
+  //       return;
+  //     }
+
+  //     // 🔹 Optional: if you want a different behavior for Off-campus housing
+  //     // you can add a similar block here (e.g. send context to backend with a message).
+
+  //     if (
+  //       btn.category === "Housing" &&
+  //       HOUSING_THIRD_LEVEL[btn.label] &&
+  //       HOUSING_THIRD_LEVEL[btn.label].length > 0
+  //     ) {
+  //       const detailButtons: ZuzuButton[] = HOUSING_THIRD_LEVEL[
+  //         btn.label
+  //       ].map((detail) => ({
+  //         id: `detail-${btn.category}-${btn.label}-${detail}`,
+  //         label: detail,
+  //         kind: "thirdlevel",
+  //         category: btn.category,
+  //         subcategory: btn.label,
+  //       }));
+
+  //       const botMsg: Message = {
+  //         id: uid(),
+  //         role: "bot",
+  //         ts: Date.now(),
+  //         content: `Here are the specific topics under **${btn.label}**:`,
+  //         buttons: detailButtons,
+  //       };
+
+  //       maybeUpdateTitle(`${btn.category} – ${btn.label}`);
+
+  //       setConvos((prev) =>
+  //         prev.map((c) =>
+  //           c.id === activeConvo.id
+  //             ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+  //             : c
+  //         )
+  //       );
+  //       setSelectedCategory(btn.category ?? null);
+  //       setSelectedSubcategory(btn.label);
+
+  //       trackCategorySelection(`${btn.category} – ${btn.label}`);
+  //       return;
+  //     }
+
+  //     // ...your existing generic subcategory handling for non-housing
+  //     const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.label}`;
+  //     maybeUpdateTitle(`${btn.category} – ${btn.label}`);
+
+  //     setConvos((prev) =>
+  //       prev.map((c) =>
+  //         c.id === activeConvo.id
+  //           ? { ...c, messages: [...c.messages, userMsg] }
+  //           : c
+  //       )
+  //     );
+
+  //     trackCategorySelection(`${btn.category} – ${btn.label}`);
+  //     void sendMessageWithText(ctx, { skipUserMessage: true });
+  //     return;
+  //   }
+
+    
+    
+    
+
+  //     const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.label}`;
+  //     maybeUpdateTitle(`${btn.category} – ${btn.label}`);
+
+  //     setConvos((prev) =>
+  //       prev.map((c) =>
+  //         c.id === activeConvo.id
+  //           ? { ...c, messages: [...c.messages, userMsg] }
+  //           : c
+  //       )
+  //     );
+
+  //     // 🔹 track subcategory
+  //     trackCategorySelection(`${btn.category} – ${btn.label}`);
+
+  //     void sendMessageWithText(ctx, { skipUserMessage: true });
+  //     return;
+  //   }
+
+  //   if (btn.kind === "thirdlevel") {
+  //     const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.subcategory} | Detail: ${btn.label}`;
+  //     maybeUpdateTitle(
+  //       `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
+  //     );
+
+  //     setConvos((prev) =>
+  //       prev.map((c) =>
+  //         c.id === activeConvo.id
+  //           ? { ...c, messages: [...c.messages, userMsg] }
+  //           : c
+  //       )
+  //     );
+
+  //     // 🔹 track third-level selection too (fine-grained)
+  //     trackCategorySelection(
+  //       `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
+  //     );
+
+  //     void sendMessageWithText(ctx, { skipUserMessage: true });
+  //   }
+  // }
   function handleButtonClick(btn: ZuzuButton) {
-    if (!activeConvo) return;
+  if (!activeConvo) return;
 
-    let selectionText = btn.label;
-    if (btn.kind === "subcategory" && btn.category) {
-      selectionText = `${btn.category} → ${btn.label}`;
-    } else if (btn.kind === "thirdlevel" && btn.category && btn.subcategory) {
-      selectionText = `${btn.category} → ${btn.subcategory} → ${btn.label}`;
+  // Build a human-readable selection string
+  let selectionText = btn.label;
+  if (btn.kind === "subcategory" && btn.category) {
+    selectionText = `${btn.category} → ${btn.label}`;
+  } else if (btn.kind === "thirdlevel" && btn.category && btn.subcategory) {
+    selectionText = `${btn.category} → ${btn.subcategory} → ${btn.label}`;
+  }
+
+  // Remember this as the current context for follow-up questions
+  setCurrentContext(selectionText);
+
+  const userMsg: Message = {
+    id: uid(),
+    role: "user",
+    content: selectionText,
+    ts: Date.now(),
+  };
+
+  const hasUserMessages =
+    activeConvo.messages.filter((m) => m.role === "user").length > 0;
+
+  const maybeUpdateTitle = (text: string) => {
+    const title = activeConvo.title;
+    const looksLikeProfile =
+      /undergraduate|graduate|phd|grad|undergrad/i.test(title);
+
+    // Allow overriding "New Conversation" and simple profile titles
+    if (!hasUserMessages || title === "New Conversation" || looksLikeProfile) {
+      updateConversationTitle(activeConvo.id, text);
     }
+  };
 
-    // 🔹 NEW: remember this as the current context for follow-up questions
-    setCurrentContext(selectionText);
-
-    const userMsg: Message = {
-      id: uid(),
-      role: "user",
-      content: selectionText,
-      ts: Date.now(),
-    };
-
-    const hasUserMessages =
-      activeConvo.messages.filter((m) => m.role === "user").length > 0;
-
-    const maybeUpdateTitle = (text: string) => {
-      const title = activeConvo.title;
-      // const looksLikeProfile =
-      //   /international|domestic/i.test(title) &&
-      //   /graduate|undergraduate|grad|undergrad/i.test(title);
-      const looksLikeProfile =/undergraduate|graduate|phd|grad|undergrad/i.test(title);
-
-
-      // 🔹 Allow overriding "New Conversation" **and** simple profile titles
-      if (!hasUserMessages || title === "New Conversation" || looksLikeProfile) {
-        updateConversationTitle(activeConvo.id, text);
-      }
-    };
-
-    if (btn.kind === "category") {
-      // Special behavior for "Other Inquiries"
-      if (btn.label === "Other Inquiries") {
-        const botMsg: Message = {
-          id: uid(),
-          role: "bot",
-          ts: Date.now(),
-          content:
-            "Great! 😊\n\n" +
-            "“Other Inquiries” just means anything that doesn’t quite fit the other buttons.\n\n" +
-            "Please go ahead and **type your question in your own words**, and I’ll do my best to help.",
-        };
-
-        maybeUpdateTitle(btn.label);
-
-        setConvos((prev) =>
-          prev.map((c) =>
-            c.id === activeConvo.id
-              ? { ...c, messages: [...c.messages, userMsg, botMsg] }
-              : c
-          )
-        );
-        setSelectedCategory(btn.label);
-
-        // 🔹 track category click
-        trackCategorySelection(btn.label);
-        return;
-      }
-
-      // Default behavior for all other categories
-      const subs = ZUZU_SUBCATEGORIES[btn.label] ?? [];
-
-      const subButtons: ZuzuButton[] = subs.map((sub) => ({
-        id: `sub-${btn.label}-${sub}`,
-        label: sub,
-        kind: "subcategory",
-        category: btn.label,
-      }));
-
+  // =============== CATEGORY LEVEL ===============
+  if (btn.kind === "category") {
+    // Special behavior for Housing
+    if (btn.label === "Housing") {
       const botMsg: Message = {
         id: uid(),
         role: "bot",
         ts: Date.now(),
-        content: `Great, let's look at **${btn.label}**. Here are the main sections I can walk you through:`,
-        buttons: subButtons,
+        content:
+          "Awesome, let’s talk housing! 🏡\n\n" +
+          "Wright State University has great **on-campus housing options**, and many of our international students choose to live on campus because it’s convenient, community-oriented, and very affordable. 💛\n\n" +
+          "You can also explore **off-campus housing** if you prefer more independence — a lot of students enjoy that flexibility too!\n\n" +
+          "I always recommend checking out **both options** before making a decision so you can choose what feels right for you. 😊\n\n" +
+          "What would you like to explore first?",
+        buttons: [
+          {
+            id: "housing-on-campus",
+            label: "On-campus housing",
+            kind: "subcategory",
+            category: "Housing",
+          },
+          {
+            id: "housing-off-campus",
+            label: "Off-campus housing",
+            kind: "subcategory",
+            category: "Housing",
+          },
+        ],
       };
 
       maybeUpdateTitle(btn.label);
@@ -1142,93 +1604,188 @@ function ZuzuApp() {
         )
       );
       setSelectedCategory(btn.label);
-
-      // 🔹 track category click
       trackCategorySelection(btn.label);
       return;
     }
 
-    if (btn.kind === "subcategory") {
-      if (
-        btn.category === "Housing" &&
-        HOUSING_THIRD_LEVEL[btn.label] &&
-        HOUSING_THIRD_LEVEL[btn.label].length > 0
-      ) {
-        const detailButtons: ZuzuButton[] = HOUSING_THIRD_LEVEL[btn.label].map(
-          (detail) => ({
-            id: `detail-${btn.category}-${btn.label}-${detail}`,
-            label: detail,
-            kind: "thirdlevel",
-            category: btn.category,
-            subcategory: btn.label,
-          })
-        );
+    // Special behavior for "Other Inquiries"
+    if (btn.label === "Other Inquiries") {
+      const botMsg: Message = {
+        id: uid(),
+        role: "bot",
+        ts: Date.now(),
+        content:
+          "Great! 😊\n\n" +
+          "“Other Inquiries” just means anything that doesn’t quite fit the other buttons.\n\n" +
+          "Please go ahead and **type your question in your own words**, and I’ll do my best to help.",
+      };
 
-        const botMsg: Message = {
-          id: uid(),
-          role: "bot",
-          ts: Date.now(),
-          content: `Here are the specific topics under **${btn.label}**:`,
-          buttons: detailButtons,
-        };
+      maybeUpdateTitle(btn.label);
 
-        maybeUpdateTitle(`${btn.category} – ${btn.label}`);
+      setConvos((prev) =>
+        prev.map((c) =>
+          c.id === activeConvo.id
+            ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+            : c
+        )
+      );
+      setSelectedCategory(btn.label);
+      trackCategorySelection(btn.label);
+      return;
+    }
 
-        setConvos((prev) =>
-          prev.map((c) =>
-            c.id === activeConvo.id
-              ? { ...c, messages: [...c.messages, userMsg, botMsg] }
-              : c
-          )
-        );
-        setSelectedCategory(btn.category ?? null);
-        setSelectedSubcategory(btn.label);
+    // Default behavior for all other categories
+    const subs = ZUZU_SUBCATEGORIES[btn.label] ?? [];
 
-        // 🔹 track subcategory as part of category usage
-        trackCategorySelection(`${btn.category} – ${btn.label}`);
-        return;
-      }
+    const subButtons: ZuzuButton[] = subs.map((sub) => ({
+      id: `sub-${btn.label}-${sub}`,
+      label: sub,
+      kind: "subcategory",
+      category: btn.label,
+    }));
 
-      const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.label}`;
+    const botMsg: Message = {
+      id: uid(),
+      role: "bot",
+      ts: Date.now(),
+      content: `Great, let's look at **${btn.label}**. Here are the main sections I can walk you through:`,
+      buttons: subButtons,
+    };
+
+    maybeUpdateTitle(btn.label);
+
+    setConvos((prev) =>
+      prev.map((c) =>
+        c.id === activeConvo.id
+          ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+          : c
+      )
+    );
+    setSelectedCategory(btn.label);
+    trackCategorySelection(btn.label);
+    return;
+  }
+
+  // =============== SUBCATEGORY LEVEL ===============
+  if (btn.kind === "subcategory") {
+    // Special step after clicking "On-campus housing"
+    if (btn.category === "Housing" && btn.label === "On-campus housing") {
+      const subs = ZUZU_SUBCATEGORIES["Housing"] ?? [];
+
+      const subButtons: ZuzuButton[] = subs.map((sub) => ({
+        id: `sub-housing-${sub}`,
+        label: sub,
+        kind: "subcategory",
+        category: "Housing",
+      }));
+
+      const botMsg: Message = {
+        id: uid(),
+        role: "bot",
+        ts: Date.now(),
+        content:
+          "Great! Here are the main **on-campus housing** topics I can walk you through:",
+        buttons: subButtons,
+      };
+
+      maybeUpdateTitle("On-campus housing");
+
+      setConvos((prev) =>
+        prev.map((c) =>
+          c.id === activeConvo.id
+            ? { ...c, messages: [...c.messages, userMsg, botMsg] }
+            : c
+        )
+      );
+
+      setSelectedCategory("Housing");
+      setSelectedSubcategory("On-campus housing");
+      trackCategorySelection("Housing – On-campus housing");
+      return;
+    }
+
+    // Housing subcategory with third-level buttons
+    if (
+      btn.category === "Housing" &&
+      HOUSING_THIRD_LEVEL[btn.label] &&
+      HOUSING_THIRD_LEVEL[btn.label].length > 0
+    ) {
+      const detailButtons: ZuzuButton[] = HOUSING_THIRD_LEVEL[btn.label].map(
+        (detail) => ({
+          id: `detail-${btn.category}-${btn.label}-${detail}`,
+          label: detail,
+          kind: "thirdlevel",
+          category: btn.category,
+          subcategory: btn.label,
+        })
+      );
+
+      const botMsg: Message = {
+        id: uid(),
+        role: "bot",
+        ts: Date.now(),
+        content: `Here are the specific topics under **${btn.label}**:`,
+        buttons: detailButtons,
+      };
+
       maybeUpdateTitle(`${btn.category} – ${btn.label}`);
 
       setConvos((prev) =>
         prev.map((c) =>
           c.id === activeConvo.id
-            ? { ...c, messages: [...c.messages, userMsg] }
+            ? { ...c, messages: [...c.messages, userMsg, botMsg] }
             : c
         )
       );
-
-      // 🔹 track subcategory
+      setSelectedCategory(btn.category ?? null);
+      setSelectedSubcategory(btn.label);
       trackCategorySelection(`${btn.category} – ${btn.label}`);
-
-      void sendMessageWithText(ctx, { skipUserMessage: true });
       return;
     }
 
-    if (btn.kind === "thirdlevel") {
-      const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.subcategory} | Detail: ${btn.label}`;
-      maybeUpdateTitle(
-        `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
-      );
+    // Generic subcategory handling (non-housing or no 3rd level)
+    const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.label}`;
+    maybeUpdateTitle(`${btn.category} – ${btn.label}`);
 
-      setConvos((prev) =>
-        prev.map((c) =>
-          c.id === activeConvo.id
-            ? { ...c, messages: [...c.messages, userMsg] }
-            : c
-        )
-      );
+    setConvos((prev) =>
+      prev.map((c) =>
+        c.id === activeConvo.id
+          ? { ...c, messages: [...c.messages, userMsg] }
+          : c
+      )
+    );
 
-      // 🔹 track third-level selection too (fine-grained)
-      trackCategorySelection(
-        `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
-      );
-
-      void sendMessageWithText(ctx, { skipUserMessage: true });
-    }
+    trackCategorySelection(`${btn.category} – ${btn.label}`);
+    void sendMessageWithText(ctx, { skipUserMessage: true });
+    return;
   }
+
+  // =============== THIRD LEVEL ===============
+  if (btn.kind === "thirdlevel") {
+    const ctx = `Category selection: ${btn.category} | Subcategory: ${btn.subcategory} | Detail: ${btn.label}`;
+    maybeUpdateTitle(
+      `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
+    );
+
+    setConvos((prev) =>
+      prev.map((c) =>
+        c.id === activeConvo.id
+          ? { ...c, messages: [...c.messages, userMsg] }
+          : c
+      )
+    );
+
+    trackCategorySelection(
+      `${btn.category} – ${btn.subcategory ?? ""} – ${btn.label}`
+    );
+
+    void sendMessageWithText(ctx, { skipUserMessage: true });
+  }
+}
+
+
+
+
 
   if (view === "admin") {
     if (!adminKey) {
@@ -2267,6 +2824,7 @@ export function AdminDashboard({
     "#6366F1",
     "#F59E0B",
     "#3B82F6",
+    "#702963"
   ];
 
   const countsByCat: Record<string, number> = {};
