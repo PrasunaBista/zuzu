@@ -1108,26 +1108,41 @@ function ZuzuApp() {
   // }
 
 
-  function sendMessage() {
+//   function sendMessage() {
+//   const t = input.trim();
+//   if (!t || !activeConvo) return;
+
+//   // Does this conversation already have at least one user message?
+//   const hasUserMessages =
+//     activeConvo.messages.filter((m) => m.role === "user").length > 0;
+
+//   if (introState !== "done" && !hasUserMessages) {
+//     // 🔹 This is truly the FIRST user message in THIS convo → treat as profile intro
+//     setInput("");
+//     void handleIntroAnswer(t);
+//     return;
+//   }
+
+//   if (introState !== "done" && hasUserMessages) {
+//     // 🔹 We're in an existing convo, but introState is stale → force it to “done”
+//     setIntroState("done");
+//   }
+
+//   setInput("");
+//   void sendMessageWithText(t);
+// }
+function sendMessage() {
   const t = input.trim();
   if (!t || !activeConvo) return;
 
-  // Does this conversation already have at least one user message?
-  const hasUserMessages =
-    activeConvo.messages.filter((m) => m.role === "user").length > 0;
-
-  if (introState !== "done" && !hasUserMessages) {
-    // 🔹 This is truly the FIRST user message in THIS convo → treat as profile intro
+  // If intro isn’t finished, EVERYTHING goes through handleIntroAnswer
+  if (introState !== "done") {
     setInput("");
     void handleIntroAnswer(t);
     return;
   }
 
-  if (introState !== "done" && hasUserMessages) {
-    // 🔹 We're in an existing convo, but introState is stale → force it to “done”
-    setIntroState("done");
-  }
-
+  // Normal chat flow
   setInput("");
   void sendMessageWithText(t);
 }

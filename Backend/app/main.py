@@ -350,9 +350,8 @@ async def chat_api(
         logger.exception("Vector search failed: %s", e)
         hits = []
         context_block = ""
-
     messages: List[dict] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "system", "content": SYSTEM_PROMPT},
     ]
     if summary:
         messages.append(
@@ -378,7 +377,41 @@ async def chat_api(
             }
         )
 
-    messages.append({"role": "user", "content": user_msg})
+        # 🔹 NEW: feed the last few turns instead of only the latest user_msg
+    for m in recent:
+            role = m.get("role")
+            content = (m.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+
+    # messages: List[dict] = [
+    #     {"role": "system", "content": SYSTEM_PROMPT},
+    # ]
+    # if summary:
+    #     messages.append(
+    #         {
+    #             "role": "system",
+    #             "content": (
+    #                 "Conversation so far (summary for context):\n"
+    #                 f"{summary}"
+    #             ),
+    #         }
+    #     )
+
+    # if context_block:
+    #     messages.append(
+    #         {
+    #             "role": "system",
+    #             "content": (
+    #                 "Here are ZUZU knowledge snippets that might be relevant. "
+    #                 "Use them when helpful, and ALWAYS cite the source like "
+    #                 "**Source: Housing site** in your answer when you use one.\n\n"
+    #                 f"{context_block}"
+    #             ),
+    #         }
+    #     )
+
+    # messages.append({"role": "user", "content": user_msg})
 
     # 6) Call LLM
     reply = await chat_complete(messages)
