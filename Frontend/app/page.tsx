@@ -250,17 +250,17 @@ interface Conversation {
 // ============================================================
 
 
-const API_BASE = "http://localhost:8000/api";
+// const API_BASE = "http://localhost:8000/api";
 // const API_BASE = process.env.NEXT_PUBLIC_API_BASE!;
 
-// const rawEnv = process.env.NEXT_PUBLIC_API_BASE;
+const rawEnv = process.env.NEXT_PUBLIC_API_BASE;
 
-// // If NEXT_PUBLIC_API_BASE is missing or literally "undefined",
-// // hard-fallback to the real Azure backend URL
-// const API_BASE =
-//   rawEnv && rawEnv !== "undefined"
-//     ? rawEnv
-//     : "https://zuzu-backend-api.azurewebsites.net/api";
+// If NEXT_PUBLIC_API_BASE is missing or literally "undefined",
+// hard-fallback to the real Azure backend URL
+const API_BASE =
+  rawEnv && rawEnv !== "undefined"
+    ? rawEnv
+    : "https://zuzu-backend-api.azurewebsites.net/api";
 
 // console.log("API_BASE in production:", API_BASE);
 
