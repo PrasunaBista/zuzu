@@ -508,6 +508,10 @@ const Late_Arrival_Form_URL =
 const Application_Portal_URL =
   "https://go.wright.edu/account/login?r=https%3a%2f%2fgo.wright.edu%2fportal%2fstatus";
 
+
+const APPLICATION_DEFERRAL_FORM_URL =
+  "https://www.wright.edu/sites/www.wright.edu/files/page/attachments/Request%20for%20Application%20Deferral%20with%20reason%20-%202018.pdf";
+
 const LINK_MAPPINGS: {
   name: string;
   // something unique we can regex-match even if the LLM mangles query params
@@ -564,7 +568,15 @@ const LINK_MAPPINGS: {
     canonicalUrl: Late_Arrival_Form_URL,
     label: "Late Arrival Form",
   },
+  {
+    name: "applicationDeferral",
+    basePattern:
+      /https:\/\/www\.wright\.edu\/sites\/www\.wright\.edu\/files\/page\/attachments\/Request%20for%20Application%20Deferral[^\s)]*/gi,
+    canonicalUrl: APPLICATION_DEFERRAL_FORM_URL,
+    label: "Application Deferral Request Form",
+  },
 ];
+
 
 
 // Generic normalizer: for each known URL, collapse messy versions

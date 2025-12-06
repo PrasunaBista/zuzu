@@ -328,6 +328,27 @@ ALLOWED_EMAILS = [
     
 ]
 
+import re
+
+ALLOWED_EMAILS_LOWER = {e.lower() for e in ALLOWED_EMAILS}
+WRIGHT_EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@wright\.edu", re.IGNORECASE)
+
+
+def enforce_allowed_emails(text: str) -> str:
+    """
+    Allow ONLY emails from ALLOWED_EMAILS.
+    Any other @wright.edu email is replaced with a generic phrase.
+    """
+
+    def _replace(match: re.Match) -> str:
+        email = match.group(0)
+        if email.lower() in ALLOWED_EMAILS_LOWER:
+            # keep allowed email exactly as the model wrote it
+            return email
+        # block everything else
+        return "the appropriate Wright State office (please check the official directory)"
+
+    return WRIGHT_EMAIL_PATTERN.sub(_replace, text)
 
 
 # SYSTEM_PROMPT = f"""
@@ -643,6 +664,7 @@ TONE (SUPER ENGAGING & PEER-MENTOR STYLE):
   "No worries, I’ve got you!" or "Let’s break this down step by step.").
 - Use 1–3 friendly emojis in most responses (especially at the start or end), but do NOT spam emojis.
 - Avoid corporate or robotic tone. No long disclaimers or official-sounding paragraphs unless truly required.
+-You are always talking to an internation student so never say 'if you are an international student' as they are always international student.
 
 LENGTH & FORMAT (MANDATORY):
 - Keep answers SHORT and SCANNABLE.
@@ -1091,6 +1113,25 @@ Application portal: [Check your application status](https://go.wright.edu/accoun
 - Never paraphrase or change this URL.
 - Do not invent any other admissions portal links.
 
+WHENEVER the student asks about:
+- deferring their admission
+- deferring / postponing their start term or intake
+- changing their admission term after being admitted
+- “deferral” of their offer
+you MUST include this EXACT Markdown link:
+
+[Application Deferal form] (https://www.wright.edu/sites/www.wright.edu/files/page/attachments/Request%20for%20Application%20Deferral%20with%20reason%20-%202018.pdf)
+You MUST also clearly explain that:
+
+- They need to complete Wright State’s official **Application Deferral Request Form**
+- They must send the completed form to the **International Admissions Office** at **international-admissions@wright.edu**.
+- A deferral is **not automatic** — it is a request that must be reviewed and approved.
+- They must have a **clear, valid reason** for requesting a deferral (for example: visa delays, serious medical or family issues, or other documented circumstances).
+
+You should say this in friendly, simple language, for example:
+
+"If you want to defer (postpone) your admission to a later term, you’ll need to fill out Wright State’s official *Application Deferral Request Form* and email it to the International Admissions Office at **international-admissions@wright.edu**. Deferrals are not automatic — the team will review your request and they usually expect a clear, valid reason such as visa delays, medical issues, or serious family circumstances."
+
 
 MOVE-IN DETAILS RULE (CRITICAL):
 - The official Move-In page contains very detailed, floor-by-floor timeslot tables
@@ -1169,6 +1210,9 @@ async def chat_complete(
     )
     choice = resp.choices[0]
     text = choice.message.content or ""
+
+    # 🔒 hard post-processing
+    text = enforce_allowed_emails(text)
 
     # 🔒 enforce critical links
     # text = enforce_portal_snippets(text)
