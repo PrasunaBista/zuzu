@@ -967,9 +967,133 @@ function ZuzuApp() {
     );
   }
 
+  // async function handleIntroAnswer(text: string) {
+  //   if (!activeConvo) return;
+
+  //   const userMsg: Message = {
+  //     id: uid(),
+  //     role: "user",
+  //     content: text,
+  //     ts: Date.now(),
+  //   };
+
+  //   setConvos((prev) =>
+  //     prev.map((c) =>
+  //       c.id === activeConvo.id
+  //         ? { ...c, messages: [...c.messages, userMsg] }
+  //         : c
+  //     )
+  //   );
+
+  
+  //   const parsed = parseStudentType(text);
+
+  //   // // If we can detect profile, use it as a temporary title
+  //   // // (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
+  //   // if (parsed.valid && parsed.level) {
+  //   //   const prettyTitle =
+  //   //     parsed.level === "PhD"
+  //   //       ? "PhD student"
+  //   //       : `${parsed.level} student`;
+  //   //   updateConversationTitle(activeConvo.id, prettyTitle);
+  //   //   setStudentLevel(parsed.level);
+  //   // }
+
+  //       if (parsed.valid && parsed.level) {
+  //         const prettyTitle =
+  //           parsed.level === "PhD"
+  //             ? "PhD student"
+  //             : `${parsed.level} student`;
+
+  //         updateConversationTitle(activeConvo.id, prettyTitle);
+
+  //         // 🔹 Keep a global copy if you want
+  //         setStudentLevel(parsed.level);
+
+  //         // 🔹 ALSO store per-conversation
+  //         setConvos((prev) =>
+  //           prev.map((c) =>
+  //             c.id === activeConvo.id
+  //               ? { ...c, studentLevel: parsed.level }
+  //               : c
+  //           )
+  //         );
+  //       }
+
+
+
+
+  //   if (!parsed.valid && introState === "waiting_first") {
+  //     const retryBot: Message = {
+  //       id: uid(),
+  //       role: "bot",
+  //       content:
+  //         "I didn’t quite catch that, and I definitely want to help you with it. 💛\n\n" +
+  //         "Before I give you a detailed answer, could you please tell me whether you are an **undergraduate**, **graduate**, or **PhD** student?\n\n" +
+  //         "This helps me give the most accurate information for your situation.",
+  //       ts: Date.now(),
+  //     };
+
+  //     setConvos((prev) =>
+  //       prev.map((c) =>
+  //         c.id === activeConvo.id
+  //           ? { ...c, messages: [...c.messages, retryBot] }
+  //           : c
+  //       )
+  //     );
+
+  //     setIntroState("waiting_retry");
+  //     return;
+  //   }
+
+  //   // const { level } = parsed;
+  //   // const summaryForLLM = parsed.valid
+  //   //   ? `Student profile: ${level} student, ${origin}.`
+  //   //   : "Student profile: not clearly specified.";
+
+  //   const { level } = parsed;
+  //   const summaryForLLM =
+  //     parsed.valid && level
+  //       ? `Student profile: ${level} student.`
+  //       : "Student profile: not clearly specified.";
+
+
+  //   setIntroState("done");
+  //   setFlowStep("chat");
+
+  //   const { content, buttons } = buildCategoryButtonMessage(parsed);
+
+  //   const botMsg: Message = {
+  //     id: uid(),
+  //     role: "bot",
+  //     content,
+  //     ts: Date.now(),
+  //     buttons,
+  //   };
+
+  //   // We still let categories override the profile title later.
+  //   setConvos((prev) =>
+  //     prev.map((c) =>
+  //       c.id === activeConvo.id
+  //         ? {
+  //             ...c,
+  //             messages: [...c.messages, botMsg],
+  //           }
+  //         : c
+  //     )
+  //   );
+
+  //   try {
+  //     await sendToBackend(activeConvo.id, summaryForLLM);
+  //   } catch (err) {
+  //     console.error("Failed to send profile summary to backend", err);
+  //   }
+  // }
+
   async function handleIntroAnswer(text: string) {
     if (!activeConvo) return;
 
+    // 1️⃣ Always show what the user typed
     const userMsg: Message = {
       id: uid(),
       role: "user",
@@ -985,52 +1109,22 @@ function ZuzuApp() {
       )
     );
 
-  
-    const parsed = parseStudentType(text);
+    const parsed = parseStudentType(text); // { level, valid }
 
-    // // If we can detect profile, use it as a temporary title
-    // // (e.g., "graduate student", "PhD student") so chats aren't stuck as "New Conversation"
-    // if (parsed.valid && parsed.level) {
-    //   const prettyTitle =
-    //     parsed.level === "PhD"
-    //       ? "PhD student"
-    //       : `${parsed.level} student`;
-    //   updateConversationTitle(activeConvo.id, prettyTitle);
-    //   setStudentLevel(parsed.level);
-    // }
-
-        if (parsed.valid && parsed.level) {
-          const prettyTitle =
-            parsed.level === "PhD"
-              ? "PhD student"
-              : `${parsed.level} student`;
-
-          updateConversationTitle(activeConvo.id, prettyTitle);
-
-          // 🔹 Keep a global copy if you want
-          setStudentLevel(parsed.level);
-
-          // 🔹 ALSO store per-conversation
-          setConvos((prev) =>
-            prev.map((c) =>
-              c.id === activeConvo.id
-                ? { ...c, studentLevel: parsed.level }
-                : c
-            )
-          );
-        }
-
-
-
-
-    if (!parsed.valid && introState === "waiting_first") {
+    // 2️⃣ If we STILL do not have a clear profile → keep asking
+    if (!parsed.valid || !parsed.level) {
+      const retryText =
+        introState === "waiting_first"
+          ? "I didn’t quite catch that, and I really want to help you. 💛\n\n" +
+            "Before I give you a detailed answer, could you please tell me whether you are an **undergraduate**, **graduate**, or **PhD** student?\n\n" +
+            "This helps me give the most accurate information for your situation."
+          : "I still don’t know if you are an **undergraduate**, **graduate**, or **PhD** student. 😊\n\n" +
+            "Before I give you a detailed answer, could you please tell me whether you are an **undergraduate**, **graduate**, or **PhD** student?\n\n" +
+            "This helps me give the most accurate information for your situation."
       const retryBot: Message = {
         id: uid(),
         role: "bot",
-        content:
-          "I didn’t quite catch that, and I definitely want to help you with it. 💛\n\n" +
-          "Before I give you a detailed answer, could you please tell me whether you are an **undergraduate**, **graduate**, or **PhD** student?\n\n" +
-          "This helps me give the most accurate information for your situation.",
+        content: retryText,
         ts: Date.now(),
       };
 
@@ -1042,22 +1136,29 @@ function ZuzuApp() {
         )
       );
 
+      // We stay in intro mode until they answer properly
       setIntroState("waiting_retry");
       return;
     }
 
-    // const { level } = parsed;
-    // const summaryForLLM = parsed.valid
-    //   ? `Student profile: ${level} student, ${origin}.`
-    //   : "Student profile: not clearly specified.";
+    // 3️⃣ Now we finally have a valid profile → save it
+    const level = parsed.level; // "undergraduate" | "graduate" | "PhD"
 
-    const { level } = parsed;
-    const summaryForLLM =
-      parsed.valid && level
-        ? `Student profile: ${level} student.`
-        : "Student profile: not clearly specified.";
+    const prettyTitle =
+      level === "PhD" ? "PhD student" : `${level} student`;
+    updateConversationTitle(activeConvo.id, prettyTitle);
 
+    // global
+    setStudentLevel(level);
 
+    // per-conversation
+    setConvos((prev) =>
+      prev.map((c) =>
+        c.id === activeConvo.id ? { ...c, studentLevel: level } : c
+      )
+    );
+
+    // 4️⃣ Move out of intro and show the big category buttons
     setIntroState("done");
     setFlowStep("chat");
 
@@ -1071,17 +1172,16 @@ function ZuzuApp() {
       buttons,
     };
 
-    // We still let categories override the profile title later.
     setConvos((prev) =>
       prev.map((c) =>
         c.id === activeConvo.id
-          ? {
-              ...c,
-              messages: [...c.messages, botMsg],
-            }
+          ? { ...c, messages: [...c.messages, botMsg] }
           : c
       )
     );
+
+    // 5️⃣ Send a short profile summary to backend so LLM knows the level
+    const summaryForLLM = `Student profile: ${level} student.`;
 
     try {
       await sendToBackend(activeConvo.id, summaryForLLM);
@@ -1089,7 +1189,6 @@ function ZuzuApp() {
       console.error("Failed to send profile summary to backend", err);
     }
   }
-
 
 
   // function sendMessage() {
