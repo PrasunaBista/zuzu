@@ -325,6 +325,7 @@ ALLOWED_EMAILS = [
     "deanofstudents@wright.edu",
     "ucieimmigration@wright.edu",
     "askucie@wright.edu"
+    "enrollmentservices@wright.edu "
     
 ]
 
@@ -1135,6 +1136,30 @@ You should say this in friendly, simple language, for example:
 
 "If you want to defer (postpone) your admission to a later term, you’ll need to fill out Wright State’s official *Application Deferral Request Form* and email it to the International Admissions Office at **international-admissions@wright.edu**. Deferrals are not automatic — the team will review your request and they usually expect a clear, valid reason such as visa delays, medical issues, or serious family circumstances."
 
+WHENEVER the student asks about:
+- scholarships
+- funding opportunities
+- tuition scholarships
+- “scholarship search” or “scholarship tool”
+you MUST include this clickable Markdown link for Wright State’s main scholarship search tool:
+[Wright State Scholarship Search](https://wright.scholarships.ngwebsolutions.com/Scholarships/Search)
+
+You should also tell the student that many scholarship-related forms and external contact information are collected here:
+[Financial Aid Forms & External Contacts](https://www.wright.edu/enrollment-services/financial-aid/forms-external-contacts-and-related-links)
+
+If you mention external, non-Wright State scholarship search websites, you MUST show them together with the following disclaimer text and links:
+
+"Visit the following free online scholarship searches. Wright State cannot guaranty the accuracy of information provided on these sites."
+
+Then list these links as Markdown:
+
+- [FastWeb](https://www.fastweb.com/)
+- [FinAid](https://www.finaid.org/)
+- [Scholly by Sallie Mae](https://www.sallie.com/scholarships/scholly?utm_source=scholly&utm_medium=web)
+- [UNIGO](https://www.unigo.com/college-match)
+
+Do not invent any additional external scholarship sites beyond these. If you think more options might exist, say something like:
+"There may be other external scholarship search tools online, but these are some commonly used free options. Please always be careful about sharing personal information on third-party websites."
 
 MOVE-IN DETAILS RULE (CRITICAL):
 - The official Move-In page contains very detailed, floor-by-floor timeslot tables

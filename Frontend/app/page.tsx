@@ -512,6 +512,25 @@ const Application_Portal_URL =
 const APPLICATION_DEFERRAL_FORM_URL =
   "https://www.wright.edu/sites/www.wright.edu/files/page/attachments/Request%20for%20Application%20Deferral%20with%20reason%20-%202018.pdf";
 
+const SCHOLARSHIP_SEARCH_TOOL_URL =
+  "https://wright.scholarships.ngwebsolutions.com/Scholarships/Search";
+
+const SCHOLARSHIP_FORMS_URL =
+  "https://www.wright.edu/enrollment-services/financial-aid/forms-external-contacts-and-related-links";
+
+const FASTWEB_URL = 
+  "https://www.fastweb.com/";
+
+const FINAID_URL = 
+  "https://www.finaid.org/";
+
+const SCHOLLY_URL =
+  "https://www.sallie.com/scholarships/scholly?utm_source=scholly&utm_medium=web";
+
+const UNIGO_URL = 
+  "https://www.unigo.com/college-match";
+
+
 const LINK_MAPPINGS: {
   name: string;
   // something unique we can regex-match even if the LLM mangles query params
@@ -575,6 +594,47 @@ const LINK_MAPPINGS: {
     canonicalUrl: APPLICATION_DEFERRAL_FORM_URL,
     label: "Application Deferral Request Form",
   },
+     {
+    name: "scholarshipSearch",
+    basePattern:
+      /https:\/\/wright\.scholarships\.ngwebsolutions\.com\/Scholarships\/Search[^\s)]*/gi,
+    canonicalUrl: SCHOLARSHIP_SEARCH_TOOL_URL,
+    label: "Wright State Scholarship Search",
+  },
+  {
+    name: "scholarshipForms",
+    basePattern:
+      /https:\/\/www\.wright\.edu\/enrollment-services\/financial-aid\/forms-external-contacts-and-related-links[^\s)]*/gi,
+    canonicalUrl: SCHOLARSHIP_FORMS_URL,
+    label: "Financial Aid Forms & External Contacts",
+  },
+  {
+    name: "fastweb",
+    basePattern: /https:\/\/www\.fastweb\.com[^\s)]*/gi,
+    canonicalUrl: FASTWEB_URL,
+    label: "FastWeb",
+  },
+  {
+    name: "finaid",
+    basePattern: /https:\/\/www\.finaid\.org[^\s)]*/gi,
+    canonicalUrl: FINAID_URL,
+    label: "FinAid",
+  },
+  {
+    name: "scholly",
+    basePattern:
+      /https:\/\/www\.sallie\.com\/scholarships\/scholly[^\s)]*/gi,
+    canonicalUrl: SCHOLLY_URL,
+    label: "Scholly by Sallie Mae",
+  },
+  {
+    name: "unigo",
+    basePattern:
+      /https:\/\/www\.unigo\.com\/college-match[^\s)]*/gi,
+    canonicalUrl: UNIGO_URL,
+    label: "UNIGO",
+  },
+
 ];
 
 
