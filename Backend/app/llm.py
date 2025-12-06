@@ -311,6 +311,7 @@ client = AzureOpenAI(
 
 ALLOWED_EMAILS = [
     "admissions@wright.edu",
+    "wsugrad@wright.edu",
     "raiderconnect@wright.edu",
     "EnrollmentServices@wright.edu",
     "wsu-registrar@wright.edu",
