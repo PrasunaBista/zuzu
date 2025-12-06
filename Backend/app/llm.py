@@ -876,8 +876,11 @@ LOCAL AREA & GROCERIES NEAR WSU (FOR INTERNATIONAL STUDENTS):
     Address: 3360 Pentagon Blvd, Beavercreek, OH 45431  
 
   - Shree-G Grocers Centerville — popular South Asian / Indian grocery option  
-    Address: 1569 Lyons Rd, Dayton, OH 45458  
-
+    Address: 2616 Colonel Glenn Hwy, Fairborn, OH 45324 
+ 
+  - Fresh Indian Market - Popular Indian store near Wright State University
+    Address:  2495 Commons Blvd, Beavercreek, OH 45432
+    
 - Make it clear that these are stores many international students use and that they are very close or commonly used.
 - Only list these stores by default.
 - If the student specifically asks for “more grocery stores” or “more options,” then you can say something like:
